@@ -1,0 +1,25 @@
+{
+  "name": "Review",
+  "type": "object",
+  "properties": {
+    "reviewer_id": {
+      "type": "string"
+    },
+    "merchant_id": {
+      "type": "string"
+    },
+    "rating": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 5
+    },
+    "comment": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "reviewer_id",
+    "merchant_id",
+    "rating"
+  ]
+}

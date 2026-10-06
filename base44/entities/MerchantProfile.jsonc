@@ -1,0 +1,42 @@
+{
+  "name": "MerchantProfile",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "business_name": {
+      "type": "string"
+    },
+    "commercial_license_file": {
+      "type": "string"
+    },
+    "license_verified": {
+      "type": "boolean",
+      "default": false
+    },
+    "address": {
+      "type": "string"
+    },
+    "region": {
+      "type": "string"
+    },
+    "subscription_plan": {
+      "type": "string",
+      "enum": [
+        "free",
+        "basic",
+        "pro"
+      ],
+      "default": "free"
+    },
+    "rating_avg": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": [
+    "user_id",
+    "business_name"
+  ]
+}

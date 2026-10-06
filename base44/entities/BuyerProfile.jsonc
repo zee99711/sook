@@ -1,0 +1,33 @@
+{
+  "name": "BuyerProfile",
+  "type": "object",
+  "properties": {
+    "user_id": {
+      "type": "string"
+    },
+    "buyer_type": {
+      "type": "string",
+      "enum": [
+        "private",
+        "general"
+      ],
+      "default": "general"
+    },
+    "linked_merchant_id": {
+      "type": "string"
+    },
+    "preferred_merchants": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "shop_name": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_id",
+    "buyer_type"
+  ]
+}

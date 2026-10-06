@@ -1,0 +1,61 @@
+{
+  "name": "Invoice",
+  "type": "object",
+  "properties": {
+    "buyer_id": {
+      "type": "string"
+    },
+    "merchant_id": {
+      "type": "string"
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "total": {
+      "type": "number",
+      "default": 0
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "issued",
+        "paid",
+        "cancelled"
+      ],
+      "default": "issued"
+    },
+    "payment_method": {
+      "type": "string"
+    },
+    "payment_status": {
+      "type": "string",
+      "enum": [
+        "unpaid",
+        "partial",
+        "paid"
+      ],
+      "default": "unpaid"
+    },
+    "delivery_status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "preparing",
+        "shipped",
+        "delivered"
+      ],
+      "default": "pending"
+    },
+    "pdf_url": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "buyer_id",
+    "merchant_id"
+  ]
+}

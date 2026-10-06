@@ -6,7 +6,27 @@ import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import ScrollToTop from './components/ScrollToTop';
-// Add page imports here
+import { Navigate } from "react-router-dom";
+import RoleRoute from "@/components/RoleRoute";
+import AppShell from "@/components/AppShell";
+import Home from "@/pages/Home";
+import Login from "@/pages/Login";
+import Register from "@/pages/Register";
+import ForgotPassword from "@/pages/ForgotPassword";
+import ResetPassword from "@/pages/ResetPassword";
+import MerchantDashboard from "@/pages/merchant/Dashboard";
+import MerchantWarehouse from "@/pages/merchant/Warehouse";
+import MerchantPrices from "@/pages/merchant/Prices";
+import MerchantInvoices from "@/pages/merchant/Invoices";
+import MerchantBrowse from "@/pages/merchant/Browse";
+import BuyerDashboard from "@/pages/buyer/Dashboard";
+import BuyerBrowse from "@/pages/buyer/Browse";
+import BuyerOrders from "@/pages/buyer/Orders";
+import AdminDashboard from "@/pages/admin/Dashboard";
+import AdminMerchants from "@/pages/admin/Merchants";
+import AdminUsers from "@/pages/admin/Users";
+import AdminInvoices from "@/pages/admin/Invoices";
+import AdminSettings from "@/pages/admin/Settings";
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -34,7 +54,43 @@ const AuthenticatedApp = () => {
   // Render the main app
   return (
     <Routes>
-      {/* Add your page Route elements here */}
+      <Route path="/" element={<Home />} />
+      <Route path="/login" element={<Login />} />
+      <Route path="/register" element={<Register />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
+
+      {/* منطقة التاجر */}
+      <Route element={<RoleRoute allowedRoles={["merchant"]} unauthenticatedElement={<Navigate to="/login" replace />} />}>
+        <Route element={<AppShell role="merchant" />}>
+          <Route path="/merchant/dashboard" element={<MerchantDashboard />} />
+          <Route path="/merchant/warehouse" element={<MerchantWarehouse />} />
+          <Route path="/merchant/prices" element={<MerchantPrices />} />
+          <Route path="/merchant/invoices" element={<MerchantInvoices />} />
+          <Route path="/merchant/browse" element={<MerchantBrowse />} />
+        </Route>
+      </Route>
+
+      {/* منطقة المشتري */}
+      <Route element={<RoleRoute allowedRoles={["buyer"]} unauthenticatedElement={<Navigate to="/login" replace />} />}>
+        <Route element={<AppShell role="buyer" />}>
+          <Route path="/buyer/dashboard" element={<BuyerDashboard />} />
+          <Route path="/buyer/browse" element={<BuyerBrowse />} />
+          <Route path="/buyer/orders" element={<BuyerOrders />} />
+        </Route>
+      </Route>
+
+      {/* منطقة الإدارة */}
+      <Route element={<RoleRoute allowedRoles={["admin"]} unauthenticatedElement={<Navigate to="/login" replace />} />}>
+        <Route element={<AppShell role="admin" />}>
+          <Route path="/admin/dashboard" element={<AdminDashboard />} />
+          <Route path="/admin/merchants" element={<AdminMerchants />} />
+          <Route path="/admin/users" element={<AdminUsers />} />
+          <Route path="/admin/invoices" element={<AdminInvoices />} />
+          <Route path="/admin/settings" element={<AdminSettings />} />
+        </Route>
+      </Route>
+
       <Route path="*" element={<PageNotFound />} />
     </Routes>
   );
