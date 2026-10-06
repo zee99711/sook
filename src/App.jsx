@@ -35,6 +35,12 @@ import AdminMerchants from "@/pages/admin/Merchants";
 import AdminUsers from "@/pages/admin/Users";
 import AdminInvoices from "@/pages/admin/Invoices";
 import AdminSettings from "@/pages/admin/Settings";
+import PublicLayout from "@/components/public/PublicLayout";
+import About from "@/pages/public/About";
+import Contact from "@/pages/public/Contact";
+import Terms from "@/pages/public/Terms";
+import Privacy from "@/pages/public/Privacy";
+import FAQ from "@/pages/public/FAQ";
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -62,7 +68,16 @@ const AuthenticatedApp = () => {
   // Render the main app
   return (
     <Routes>
-      <Route path="/" element={<Home />} />
+      {/* الصفحات العامة */}
+      <Route element={<PublicLayout />}>
+        <Route path="/" element={<Home />} />
+        <Route path="/about" element={<About />} />
+        <Route path="/contact" element={<Contact />} />
+        <Route path="/terms" element={<Terms />} />
+        <Route path="/privacy" element={<Privacy />} />
+        <Route path="/faq" element={<FAQ />} />
+      </Route>
+
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
