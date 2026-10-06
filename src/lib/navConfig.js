@@ -9,6 +9,9 @@ import {
   Users,
   Settings,
   BarChart3,
+  ShoppingCart,
+  MessageSquare,
+  User,
 } from "lucide-react";
 
 export const navItems = {
@@ -22,9 +25,13 @@ export const navItems = {
     { label: "الملف والإعدادات", path: "/merchant/profile", icon: Settings },
   ],
   buyer: [
-    { label: "لوحة التحكم", path: "/buyer/dashboard", icon: LayoutDashboard },
+    { label: "الرئيسية", path: "/buyer/dashboard", icon: LayoutDashboard },
     { label: "تصفّح المنتجات", path: "/buyer/browse", icon: Search },
+    { label: "التجار", path: "/buyer/merchants", icon: Store },
+    { label: "سلة المشتري", path: "/buyer/cart", icon: ShoppingCart },
     { label: "طلباتي", path: "/buyer/orders", icon: Package },
+    { label: "المحادثات", path: "/buyer/chat", icon: MessageSquare },
+    { label: "الملف الشخصي", path: "/buyer/profile", icon: User },
   ],
   admin: [
     { label: "لوحة التحكم", path: "/admin/dashboard", icon: LayoutDashboard },

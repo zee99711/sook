@@ -24,6 +24,12 @@ import MerchantProfile from "@/pages/merchant/Profile";
 import BuyerDashboard from "@/pages/buyer/Dashboard";
 import BuyerBrowse from "@/pages/buyer/Browse";
 import BuyerOrders from "@/pages/buyer/Orders";
+import BuyerProductDetail from "@/pages/buyer/ProductDetail";
+import BuyerCart from "@/pages/buyer/Cart";
+import BuyerMerchants from "@/pages/buyer/Merchants";
+import BuyerChat from "@/pages/buyer/Chat";
+import BuyerProfile from "@/pages/buyer/Profile";
+import { CartProvider } from "@/context/CartContext";
 import AdminDashboard from "@/pages/admin/Dashboard";
 import AdminMerchants from "@/pages/admin/Merchants";
 import AdminUsers from "@/pages/admin/Users";
@@ -77,10 +83,15 @@ const AuthenticatedApp = () => {
 
       {/* منطقة المشتري */}
       <Route element={<RoleRoute allowedRoles={["buyer"]} unauthenticatedElement={<Navigate to="/login" replace />} />}>
-        <Route element={<AppShell role="buyer" />}>
+        <Route element={<CartProvider><AppShell role="buyer" /></CartProvider>}>
           <Route path="/buyer/dashboard" element={<BuyerDashboard />} />
           <Route path="/buyer/browse" element={<BuyerBrowse />} />
+          <Route path="/buyer/product/:id" element={<BuyerProductDetail />} />
+          <Route path="/buyer/merchants" element={<BuyerMerchants />} />
+          <Route path="/buyer/cart" element={<BuyerCart />} />
           <Route path="/buyer/orders" element={<BuyerOrders />} />
+          <Route path="/buyer/chat" element={<BuyerChat />} />
+          <Route path="/buyer/profile" element={<BuyerProfile />} />
         </Route>
       </Route>
 

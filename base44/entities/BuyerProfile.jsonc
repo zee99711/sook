@@ -24,6 +24,18 @@
     },
     "shop_name": {
       "type": "string"
+    },
+    "phone": {
+      "type": "string"
+    },
+    "address": {
+      "type": "string"
+    },
+    "saved_payments": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
     }
   },
   "required": [
