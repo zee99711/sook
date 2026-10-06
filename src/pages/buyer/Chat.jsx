@@ -3,10 +3,11 @@ import { useSearchParams } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { useAuth } from "@/lib/AuthContext";
 import { useBuyerData, merchantById } from "@/hooks/useBuyerData";
+import { notifyChat } from "@/lib/notify";
 import EmptyState from "@/components/merchant/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MessageSquare, Send, Paperclip, Loader2, ArrowRight, Image as ImageIcon } from "lucide-react";
+import { MessageSquare, Send, Paperclip, Loader2, ArrowRight, CheckCheck, FileText } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
 
 export default function BuyerChat() {
@@ -29,7 +30,6 @@ export default function BuyerChat() {
     return mine;
   };
 
-  // تهيئة: إنشاء/اختيار محادثة من معامل التاجر
   useEffect(() => {
     if (!user) return;
     (async () => {
@@ -43,11 +43,9 @@ export default function BuyerChat() {
             last_message: "",
             updated_at: new Date().toISOString(),
           });
-          const fresh = await loadChats();
-          setActiveChat(chat.id);
-        } else {
-          setActiveChat(chat.id);
+          await loadChats();
         }
+        setActiveChat(chat.id);
         setParams({}, { replace: true });
       } else if (mine[0]) {
         setActiveChat(mine[0].id);
@@ -56,33 +54,47 @@ export default function BuyerChat() {
     })();
   }, [user, merchantParam]);
 
-  // تحميل الرسائل + الاشتراك اللحظي
+  // تحميل الرسائل + الاشتراك اللحظي + تعليم المُستلمة كمقروءة
   useEffect(() => {
     if (!activeChat) { setMessages([]); return; }
-    base44.entities.Message.filter({ chat_id: activeChat }, "created_date", 200).then((r) => {
+    base44.entities.Message.filter({ chat_id: activeChat }, "created_date", 200).then(async (r) => {
       setMessages(r || []);
+      // تعليم رسائل الطرف الآخر كمقروءة
+      const unread = (r || []).filter((m) => m.sender_id !== user.id && !m.read);
+      for (const m of unread) {
+        try { await base44.entities.Message.update(m.id, { read: true }); } catch {}
+      }
       setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
     });
     const unsub = base44.entities.Message.subscribe((event) => {
-      if (event?.data?.chat_id === activeChat || event?.chat_id === activeChat) {
-        setMessages((prev) => [...prev, event.data].filter(Boolean));
+      if (event?.data?.chat_id === activeChat) {
+        setMessages((prev) => {
+          if (prev.some((p) => p.id === event.data.id)) return prev;
+          return [...prev, event.data];
+        });
+        if (event.data.sender_id !== user.id) {
+          base44.entities.Message.update(event.data.id, { read: true }).catch(() => {});
+        }
         setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
       }
     });
     return unsub;
   }, [activeChat]);
 
+  const otherId = (chat) => chat?.participants?.find((p) => p !== user.id);
+  const otherName = (chat) => merchantById(merchants, otherId(chat))?.business_name || "تاجر";
+
   const send = async () => {
-    if (!text.trim() && !uploading) return;
+    if (!text.trim()) return;
     if (!activeChat) return;
     const body = text.trim();
     setText("");
     try {
-      const msg = await base44.entities.Message.create({ chat_id: activeChat, sender_id: user.id, body, attachments: [] });
+      const msg = await base44.entities.Message.create({ chat_id: activeChat, sender_id: user.id, body, attachments: [], read: false });
       setMessages((prev) => [...prev, msg]);
-      await base44.entities.Chat.update(activeChat, { last_message: body || "مرفق", updated_at: new Date().toISOString() });
+      await base44.entities.Chat.update(activeChat, { last_message: body, updated_at: new Date().toISOString() });
+      await notifyChat(otherId(chats.find((c) => c.id === activeChat)), user?.display_name || user?.full_name || "مشتري");
       loadChats();
-      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
     } catch (err) {
       toast({ title: err.message || "فشل الإرسال", variant: "destructive" });
     }
@@ -94,22 +106,17 @@ export default function BuyerChat() {
     setUploading(true);
     try {
       const { file_url } = await base44.integrations.Core.UploadPublicFile({ file });
-      const msg = await base44.entities.Message.create({ chat_id: activeChat, sender_id: user.id, body: "", attachments: [file_url] });
+      const isImg = file.type.startsWith("image/");
+      const msg = await base44.entities.Message.create({ chat_id: activeChat, sender_id: user.id, body: isImg ? "" : file.name, attachments: [file_url], read: false });
       setMessages((prev) => [...prev, msg]);
       await base44.entities.Chat.update(activeChat, { last_message: "مرفق", updated_at: new Date().toISOString() });
+      await notifyChat(otherId(chats.find((c) => c.id === activeChat)), user?.display_name || user?.full_name || "مشتري");
       loadChats();
-      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
     } catch (err) {
       toast({ title: err.message || "فشل الرفع", variant: "destructive" });
     } finally {
       setUploading(false);
     }
-  };
-
-  const otherName = (chat) => {
-    const otherId = chat?.participants?.find((p) => p !== user.id);
-    const m = merchantById(merchants, otherId);
-    return m?.business_name || "تاجر";
   };
 
   if (loading) return <EmptyState loading />;
@@ -118,7 +125,6 @@ export default function BuyerChat() {
     <div>
       <h1 className="text-2xl font-bold text-navy mb-6 flex items-center gap-2"><MessageSquare className="w-6 h-6 text-gold" /> المحادثات</h1>
       <div className="grid lg:grid-cols-[300px_1fr] gap-4 h-[calc(100vh-220px)] min-h-[480px]">
-        {/* قائمة المحادثات */}
         <div className="bg-card rounded-2xl border border-border overflow-hidden flex flex-col">
           <div className="overflow-y-auto flex-1">
             {chats.length === 0 ? (
@@ -137,7 +143,6 @@ export default function BuyerChat() {
           </div>
         </div>
 
-        {/* نافذة المحادثة */}
         <div className="bg-card rounded-2xl border border-border overflow-hidden flex flex-col">
           {activeChat ? (
             <>
@@ -154,8 +159,15 @@ export default function BuyerChat() {
                       <div className={`max-w-[75%] rounded-2xl px-4 py-2 ${mine ? "bg-gold text-navy" : "bg-white border border-border"}`}>
                         {msg.body && <p className="text-sm whitespace-pre-line">{msg.body}</p>}
                         {msg.attachments?.map((a, i) => (
-                          <a key={i} href={a} target="_blank" rel="noreferrer"><img src={a} alt="مرفق" className="mt-1 rounded-lg max-h-40" /></a>
+                          <a key={i} href={a} target="_blank" rel="noreferrer" className="block mt-1">
+                            {a.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                              <img src={a} alt="مرفق" className="rounded-lg max-h-40" />
+                            ) : (
+                              <span className="inline-flex items-center gap-2 text-xs underline"><FileText className="w-4 h-4" /> ملف مرفق</span>
+                            )}
+                          </a>
                         ))}
+                        {mine && <span className="flex items-center gap-1 justify-end mt-1 text-[10px] text-navy/60"><CheckCheck className="w-3 h-3" /> {msg.read ? "مقروءة" : "مُرسلة"}</span>}
                       </div>
                     </div>
                   );
@@ -165,7 +177,7 @@ export default function BuyerChat() {
               <div className="p-3 border-t border-border flex items-center gap-2">
                 <label className="cursor-pointer p-2 rounded-lg hover:bg-secondary text-navy">
                   {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Paperclip className="w-5 h-5" />}
-                  <input type="file" accept="image/*" className="hidden" onChange={onFile} />
+                  <input type="file" accept="image/*,application/pdf" className="hidden" onChange={onFile} />
                 </label>
                 <Input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} placeholder="اكتب رسالة..." className="h-11" />
                 <Button onClick={send} className="h-11 w-11 p-0 bg-gold text-navy hover:bg-gold/90"><Send className="w-5 h-5" /></Button>

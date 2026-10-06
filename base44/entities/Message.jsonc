@@ -16,6 +16,10 @@
       "items": {
         "type": "string"
       }
+    },
+    "read": {
+      "type": "boolean",
+      "default": false
     }
   },
   "required": [

@@ -1,0 +1,27 @@
+{
+  "name": "AppSetting",
+  "type": "object",
+  "properties": {
+    "cod_rate": {
+      "type": "number",
+      "default": 0.03
+    },
+    "usdt_rate": {
+      "type": "number",
+      "default": 0.02
+    },
+    "shamcash_rate": {
+      "type": "number",
+      "default": 0.025
+    },
+    "syrcash_rate": {
+      "type": "number",
+      "default": 0.025
+    },
+    "tax_rate": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": []
+}

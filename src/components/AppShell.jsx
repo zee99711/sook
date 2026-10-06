@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LogOut, Menu, X, Bell } from "lucide-react";
+import { LogOut, Menu, X } from "lucide-react";
+import NotificationBell from "@/components/NotificationBell";
 import { useAuth } from "@/lib/AuthContext";
 import { navItems } from "@/lib/navConfig";
 import { roleLabel } from "@/lib/roles";
@@ -91,10 +92,7 @@ export default function AppShell({ role }) {
             </button>
             <div className="hidden lg:block" />
             <div className="flex items-center gap-3">
-              <button className="p-2 rounded-lg hover:bg-secondary relative" aria-label="الإشعارات">
-                <Bell className="w-5 h-5 text-navy" />
-                <span className="absolute top-1.5 left-1.5 w-2 h-2 rounded-full bg-gold" />
-              </button>
+              <NotificationBell />
               <div className="flex items-center gap-3 pr-3 border-r border-border">
                 <div className="w-9 h-9 rounded-full bg-navy text-white flex items-center justify-center font-bold text-sm">
                   {(user?.display_name || user?.full_name || "م").charAt(0)}

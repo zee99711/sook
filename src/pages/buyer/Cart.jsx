@@ -1,10 +1,12 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { useBuyerData, merchantById } from "@/hooks/useBuyerData";
 import { useCart } from "@/context/CartContext";
-import { PAYMENT_METHODS, orderTotals } from "@/lib/buyerConstants";
-import { printInvoice } from "@/lib/exportUtils";
+import { PAYMENT_METHODS } from "@/lib/buyerConstants";
+import { getCommissions, orderTotals } from "@/lib/commissions";
+import { generateInvoiceNumber, generateAndSaveInvoicePDF } from "@/lib/invoiceUtils";
+import { notifyMerchantNewOrder } from "@/lib/notify";
 import EmptyState from "@/components/merchant/EmptyState";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +21,9 @@ export default function BuyerCart() {
   const [method, setMethod] = useState("cod");
   const [notes, setNotes] = useState("");
   const [placing, setPlacing] = useState(false);
+  const [commissions, setCommissions] = useState({ cod: 0.03, usdt: 0.02, shamcash: 0.025, syrcash: 0.025, tax: 0 });
+
+  useEffect(() => { getCommissions().then(setCommissions); }, []);
 
   const groups = useMemo(() => {
     const map = {};
@@ -30,7 +35,7 @@ export default function BuyerCart() {
   }, [items]);
 
   const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0);
-  const totals = orderTotals(subtotal, method);
+  const totals = orderTotals(subtotal, method, commissions);
 
   const placeOrder = async () => {
     if (!groups.length) return;
@@ -38,48 +43,46 @@ export default function BuyerCart() {
     try {
       const buyerName = user?.display_name || user?.full_name || "مشتري";
       const methodLabel = PAYMENT_METHODS.find((m) => m.id === method)?.label || "";
-      const createdInvoices = [];
+      const firstPdfUrl = "";
 
       for (const [merchantId, groupItems] of groups) {
         const sub = groupItems.reduce((s, i) => s + i.price * i.qty, 0);
-        const t = orderTotals(sub, method);
+        const t = orderTotals(sub, method, commissions);
         const invItems = groupItems.map((i) => ({ name: i.name, qty: i.qty, unit_price: i.price, subtotal: i.price * i.qty }));
         const invoice = await base44.entities.Invoice.create({
           buyer_id: user.id,
           merchant_id: merchantId,
+          invoice_number: generateInvoiceNumber(),
           items: invItems,
+          subtotal: sub,
           total: t.total,
+          commission: t.commission,
+          net_amount: t.net,
           status: "issued",
           payment_method: methodLabel,
           payment_status: "unpaid",
           delivery_status: "pending",
         });
-        createdInvoices.push({ invoice, merchantId, items: invItems, total: t.total });
 
-        // إشعار داخلي للتاجر
-        await base44.entities.Notification.create({
-          user_id: merchantId,
-          type: "new_order",
-          title: "طلب جديد",
-          body: `طلب جديد من ${buyerName} بقيمة ${t.total.toLocaleString("ar-EG")} ر.س — ${methodLabel}`,
-        });
+        // توليد PDF رسمي + QR ورفعه للتخزين وربطه بالفاتورة
+        const merchantName = merchantById(merchants, merchantId)?.business_name || "تاجر";
+        try {
+          const pdf_url = await generateAndSaveInvoicePDF(invoice, {
+            merchantName, buyerName, subtotal: sub, commission: t.commission, net: t.net, methodLabel,
+          });
+          await base44.entities.Invoice.update(invoice.id, { pdf_url });
+          invoice.pdf_url = pdf_url;
+          if (!firstPdfUrl) window.open(pdf_url, "_blank");
+        } catch {
+          // تجاهل فشل التوليد — الفاتورة تبقى مسجلة
+        }
+
+        // إشعار داخلي + واتساب للتاجر
+        await notifyMerchantNewOrder({ ...invoice, total: t.total }, buyerName);
       }
 
-      // رسالة واتساب للتاجر (مشاركة عبر واتساب دون الحاجة لرقم)
-      const waText = `طلب جديد من ${buyerName}\nطريقة الدفع: ${methodLabel}\n${groups.map(([mid, gi]) => {
-        const mname = merchantById(merchants, mid)?.business_name || "تاجر";
-        const sub = gi.reduce((s, i) => s + i.price * i.qty, 0);
-        return `\n【${mname}】\n${gi.map((i) => `• ${i.name} ×${i.qty} = ${(i.price * i.qty).toLocaleString("ar-EG")} ر.س`).join("\n")}\nالإجمالي: ${sub.toLocaleString("ar-EG")} ر.س`;
-      }).join("\n")}\n${notes ? `\nملاحظات: ${notes}` : ""}`;
-      window.open(`https://wa.me/?text=${encodeURIComponent(waText)}`, "_blank");
-
-      // توليد PDF تلقائي للفاتورة الأولى
-      const first = createdInvoices[0];
-      const mname = merchantById(merchants, first.merchantId)?.business_name || "تاجر";
-      printInvoice(first.invoice, buyerName, mname, first.items);
-
       clear();
-      toast({ title: "تم تأكيد طلبك بنجاح", description: "تم إرسال إشعار للتاجر وفتح واتساب لإتمام التواصل." });
+      toast({ title: "تم تأكيد طلبك بنجاح", description: "تم توليد الفاتورة وإرسال إشعار للتاجر عبر المنصة وواتساب." });
       navigate("/buyer/orders");
     } catch (err) {
       toast({ title: err.message || "فشل تأكيد الطلب", variant: "destructive" });
@@ -98,7 +101,6 @@ export default function BuyerCart() {
         <EmptyState icon={ShoppingCart} title="سلتك فارغة" subtitle="تصفّح المنتجات وأضف ما تريد" action={<Button asChild className="bg-gold text-navy hover:bg-gold/90"><Link to="/buyer/browse">ابدأ التسوّق</Link></Button>} />
       ) : (
         <div className="grid lg:grid-cols-[1fr_360px] gap-6">
-          {/* القائمة */}
           <div className="space-y-6">
             {groups.map(([merchantId, groupItems]) => {
               const m = merchantById(merchants, merchantId);
@@ -141,30 +143,30 @@ export default function BuyerCart() {
             })}
           </div>
 
-          {/* ملخص الطلب */}
           <div className="space-y-4">
             <div className="bg-card rounded-2xl border border-border p-5 lg:sticky lg:top-24">
               <h3 className="font-bold text-navy mb-4">ملخص الطلب</h3>
               <div className="space-y-2 text-sm mb-4">
-                <Row label="المجموع الفرعي" value={`${totals.subtotal.toLocaleString("ar-EG")} ر.س`} />
-                <Row label={`العمولة (${totals.methodLabel})`} value={`${totals.commission.toLocaleString("ar-EG", { maximumFractionDigits: 2 })} ر.س`} />
-                <Row label="الضريبة" value={`${totals.tax.toLocaleString("ar-EG")} ر.س`} />
-                <div className="border-t border-border pt-2 flex justify-between font-bold text-navy text-base">
-                  <span>الإجمالي</span><span>{totals.total.toLocaleString("ar-EG")} ر.س</span>
-                </div>
+                <div className="flex justify-between text-muted-foreground"><span>المجموع الفرعي</span><span className="text-foreground font-medium">{totals.subtotal.toLocaleString("ar-EG")} ر.س</span></div>
+                <div className="flex justify-between text-muted-foreground"><span>العمولة</span><span className="text-foreground font-medium">{totals.commission.toLocaleString("ar-EG", { maximumFractionDigits: 2 })} ر.س</span></div>
+                <div className="flex justify-between text-muted-foreground"><span>الضريبة</span><span className="text-foreground font-medium">{totals.tax.toLocaleString("ar-EG")} ر.س</span></div>
+                <div className="border-t border-border pt-2 flex justify-between font-bold text-navy text-base"><span>الإجمالي</span><span>{totals.total.toLocaleString("ar-EG")} ر.س</span></div>
               </div>
 
               <p className="text-sm font-medium text-navy mb-2">طريقة الدفع</p>
               <div className="space-y-2 mb-4">
-                {PAYMENT_METHODS.map((m) => (
-                  <label key={m.id} className={`flex items-center justify-between p-3 rounded-xl border-2 cursor-pointer transition ${method === m.id ? "border-gold bg-gold/5" : "border-border"}`}>
-                    <div className="flex items-center gap-2">
-                      <input type="radio" name="method" checked={method === m.id} onChange={() => setMethod(m.id)} className="accent-[#C9A961]" />
-                      <span className="text-sm font-medium text-navy">{m.label}</span>
-                    </div>
-                    <span className="text-xs text-muted-foreground">عمولة {(m.commission * 100).toFixed(1)}%</span>
-                  </label>
-                ))}
+                {PAYMENT_METHODS.map((m) => {
+                  const rate = { cod: commissions.cod, usdt: commissions.usdt, shamcash: commissions.shamcash, syrcash: commissions.syrcash }[m.id];
+                  return (
+                    <label key={m.id} className={`flex items-center justify-between p-3 rounded-xl border-2 cursor-pointer transition ${method === m.id ? "border-gold bg-gold/5" : "border-border"}`}>
+                      <div className="flex items-center gap-2">
+                        <input type="radio" name="method" checked={method === m.id} onChange={() => setMethod(m.id)} className="accent-[#C9A961]" />
+                        <span className="text-sm font-medium text-navy">{m.label}</span>
+                      </div>
+                      <span className="text-xs text-muted-foreground">عمولة {((rate || 0) * 100).toFixed(1)}%</span>
+                    </label>
+                  );
+                })}
               </div>
 
               <div className="mb-4">
@@ -172,21 +174,13 @@ export default function BuyerCart() {
               </div>
 
               <Button onClick={placeOrder} disabled={placing} className="w-full h-12 bg-gold text-navy hover:bg-gold/90 font-semibold">
-                {placing ? <><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التأكيد...</> : <><Check className="w-4 h-4" /> تأكيد الطلب</>}
+                {placing ? <><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التأكيد وتوليد الفاتورة...</> : <><Check className="w-4 h-4" /> تأكيد الطلب</>}
               </Button>
-              <p className="text-xs text-muted-foreground text-center mt-3">سيتم إرسال إشعار للتاجر وفتح واتساب وتوليد فاتورة PDF.</p>
+              <p className="text-xs text-muted-foreground text-center mt-3">سيتم توليد فاتورة PDF وإرسال إشعار داخلي ورسالة واتساب للتاجر.</p>
             </div>
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-function Row({ label, value }) {
-  return (
-    <div className="flex justify-between text-muted-foreground">
-      <span>{label}</span><span className="text-foreground font-medium">{value}</span>
     </div>
   );
 }

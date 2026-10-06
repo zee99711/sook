@@ -19,6 +19,18 @@ export default function RoleRoute({ allowedRoles, unauthenticatedElement }) {
     return unauthenticatedElement;
   }
 
+  if (user?.status === "suspended") {
+    return (
+      <div className="fixed inset-0 flex flex-col items-center justify-center text-center px-6 bg-background">
+        <div className="w-16 h-16 rounded-2xl bg-destructive/10 text-destructive flex items-center justify-center mb-4">
+          <span className="text-3xl">⛔</span>
+        </div>
+        <h1 className="text-xl font-bold text-navy">تم تعليق حسابك</h1>
+        <p className="text-sm text-muted-foreground mt-2 max-w-sm">تم حظر حسابك من قبل إدارة المنصة. يرجى التواصل مع الدفع لإلغاء الحظر.</p>
+      </div>
+    );
+  }
+
   const role = getEffectiveRole(user);
 
   if (!allowedRoles.includes(role)) {

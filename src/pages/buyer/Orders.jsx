@@ -5,7 +5,10 @@ import { printInvoice } from "@/lib/exportUtils";
 import EmptyState from "@/components/merchant/EmptyState";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Package, Download, Loader2 } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Package, Download, Star, Loader2 } from "lucide-react";
+import { toast } from "@/components/ui/use-toast";
 
 const delivLabel = { pending: "قيد المراجعة", preparing: "قيد التجهيز", shipped: "تم الشحن", delivered: "تم التسليم" };
 const statusTone = {
@@ -17,19 +20,29 @@ const statusTone = {
 };
 
 export default function BuyerOrders() {
-  const { user, merchants } = useBuyerData();
+  const { user, merchants, refresh } = useBuyerData();
   const [invoices, setInvoices] = useState([]);
+  const [myReviews, setMyReviews] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [rateTarget, setRateTarget] = useState(null); // invoice
+  const [rating, setRating] = useState(5);
+  const [comment, setComment] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   const load = () => {
     if (!user) return;
     setLoading(true);
-    base44.entities.Invoice.filter({ buyer_id: user.id }, "-created_date", 100)
-      .then((r) => setInvoices(r || []))
+    Promise.all([
+      base44.entities.Invoice.filter({ buyer_id: user.id }, "-created_date", 100),
+      base44.entities.Review.filter({ reviewer_id: user.id }, "-created_date", 50),
+    ])
+      .then(([inv, rev]) => { setInvoices(inv || []); setMyReviews(rev || []); })
       .catch(() => {})
       .finally(() => setLoading(false));
   };
   useEffect(load, [user]);
+
+  const ratedIds = useMemo(() => new Set((myReviews || []).map((r) => r.invoice_id).filter(Boolean)), [myReviews]);
 
   const tabs = useMemo(() => ({
     pending: invoices.filter((i) => i.delivery_status === "pending" && i.status !== "cancelled"),
@@ -41,11 +54,40 @@ export default function BuyerOrders() {
   const buyerName = user?.display_name || user?.full_name || "مشتري";
 
   const handlePDF = (inv) => {
+    if (inv.pdf_url) { window.open(inv.pdf_url, "_blank"); return; }
     const m = merchantById(merchants, inv.merchant_id);
     printInvoice(inv, buyerName, m?.business_name || "تاجر", inv.items || []);
   };
 
-  const renderList = (list) => (
+  const openRate = (inv) => { setRateTarget(inv); setRating(5); setComment(""); };
+  const submitReview = async () => {
+    if (!rateTarget) return;
+    setSubmitting(true);
+    try {
+      await base44.entities.Review.create({
+        reviewer_id: user.id,
+        merchant_id: rateTarget.merchant_id,
+        invoice_id: rateTarget.id,
+        rating,
+        comment: comment.trim(),
+      });
+      // إعادة حساب متوسط تقييم التاجر
+      const reviews = await base44.entities.Review.filter({ merchant_id: rateTarget.merchant_id });
+      const avg = reviews.length ? reviews.reduce((s, r) => s + (r.rating || 0), 0) / reviews.length : 0;
+      const prof = await base44.entities.MerchantProfile.filter({ user_id: rateTarget.merchant_id });
+      if (prof[0]) await base44.entities.MerchantProfile.update(prof[0].id, { rating_avg: Math.round(avg * 10) / 10 });
+      toast({ title: "شكراً لتقييمك" });
+      setRateTarget(null);
+      load();
+      refresh();
+    } catch (err) {
+      toast({ title: err.message || "فشل إرسال التقييم", variant: "destructive" });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const renderList = (list, canRate = false) => (
     list.length === 0 ? (
       <EmptyState icon={Package} title="لا توجد طلبات" subtitle="ستظهر طلباتك هنا بعد تأكيد أول طلب" />
     ) : (
@@ -53,10 +95,11 @@ export default function BuyerOrders() {
         {list.map((inv) => {
           const m = merchantById(merchants, inv.merchant_id);
           const st = inv.status === "cancelled" ? "cancelled" : inv.delivery_status;
+          const canReview = canRate && inv.status !== "cancelled" && !ratedIds.has(inv.id);
           return (
             <div key={inv.id} className="bg-card rounded-2xl border border-border p-4 flex flex-wrap items-center gap-4">
               <div className="flex-1 min-w-[160px]">
-                <p className="font-mono text-xs text-muted-foreground">#{inv.id.slice(0, 10)}</p>
+                <p className="font-mono text-xs text-muted-foreground">{inv.invoice_number || `#${inv.id.slice(0, 10)}`}</p>
                 <p className="font-semibold text-navy mt-0.5">{m?.business_name || "تاجر"}</p>
                 <p className="text-xs text-muted-foreground">{new Date(inv.created_date).toLocaleDateString("ar-EG")} · {inv.payment_method || "—"}</p>
               </div>
@@ -65,8 +108,12 @@ export default function BuyerOrders() {
               </div>
               <div className="text-left">
                 <p className="font-bold text-navy">{(inv.total || 0).toLocaleString("ar-EG")} ر.س</p>
+                <p className="text-[11px] text-muted-foreground">عمولة {(inv.commission || 0).toLocaleString("ar-EG", { maximumFractionDigits: 2 })} · صافي التاجر {(inv.net_amount || 0).toLocaleString("ar-EG")}</p>
               </div>
-              <Button variant="outline" size="sm" onClick={() => handlePDF(inv)}><Download className="w-4 h-4" /> PDF</Button>
+              <div className="flex gap-2">
+                {canReview && <Button onClick={() => openRate(inv)} size="sm" className="h-9 bg-gold text-navy hover:bg-gold/90"><Star className="w-4 h-4" /> قيّم</Button>}
+                <Button variant="outline" size="sm" onClick={() => handlePDF(inv)}><Download className="w-4 h-4" /> PDF</Button>
+              </div>
             </div>
           );
         })}
@@ -86,9 +133,33 @@ export default function BuyerOrders() {
         </TabsList>
         <TabsContent value="pending" className="mt-5">{loading ? <EmptyState loading /> : renderList(tabs.pending)}</TabsContent>
         <TabsContent value="delivering" className="mt-5">{loading ? <EmptyState loading /> : renderList(tabs.delivering)}</TabsContent>
-        <TabsContent value="completed" className="mt-5">{loading ? <EmptyState loading /> : renderList(tabs.completed)}</TabsContent>
+        <TabsContent value="completed" className="mt-5">{loading ? <EmptyState loading /> : renderList(tabs.completed, true)}</TabsContent>
         <TabsContent value="cancelled" className="mt-5">{loading ? <EmptyState loading /> : renderList(tabs.cancelled)}</TabsContent>
       </Tabs>
+
+      <Dialog open={!!rateTarget} onOpenChange={(o) => !o && setRateTarget(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>قيّم التاجر</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="flex justify-center gap-2">
+              {[1, 2, 3, 4, 5].map((s) => (
+                <button key={s} onClick={() => setRating(s)} type="button">
+                  <Star className={`w-9 h-9 ${s <= rating ? "text-gold fill-gold" : "text-muted-foreground/30"}`} />
+                </button>
+              ))}
+            </div>
+            <Textarea value={comment} onChange={(e) => setComment(e.target.value)} placeholder="اكتب تعليقك (اختياري)..." rows={3} />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRateTarget(null)}>إلغاء</Button>
+            <Button onClick={submitReview} disabled={submitting} className="bg-gold text-navy hover:bg-gold/90">
+              {submitting && <Loader2 className="w-4 h-4 animate-spin" />} إرسال التقييم
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

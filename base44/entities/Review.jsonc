@@ -8,6 +8,9 @@
     "merchant_id": {
       "type": "string"
     },
+    "invoice_id": {
+      "type": "string"
+    },
     "rating": {
       "type": "number",
       "minimum": 1,
