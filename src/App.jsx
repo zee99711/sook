@@ -19,6 +19,8 @@ import MerchantWarehouse from "@/pages/merchant/Warehouse";
 import MerchantPrices from "@/pages/merchant/Prices";
 import MerchantInvoices from "@/pages/merchant/Invoices";
 import MerchantBrowse from "@/pages/merchant/Browse";
+import MerchantReports from "@/pages/merchant/Reports";
+import MerchantProfile from "@/pages/merchant/Profile";
 import BuyerDashboard from "@/pages/buyer/Dashboard";
 import BuyerBrowse from "@/pages/buyer/Browse";
 import BuyerOrders from "@/pages/buyer/Orders";
@@ -68,6 +70,8 @@ const AuthenticatedApp = () => {
           <Route path="/merchant/prices" element={<MerchantPrices />} />
           <Route path="/merchant/invoices" element={<MerchantInvoices />} />
           <Route path="/merchant/browse" element={<MerchantBrowse />} />
+          <Route path="/merchant/reports" element={<MerchantReports />} />
+          <Route path="/merchant/profile" element={<MerchantProfile />} />
         </Route>
       </Route>
 

@@ -33,6 +33,20 @@
     "rating_avg": {
       "type": "number",
       "default": 0
+    },
+    "logo_url": {
+      "type": "string"
+    },
+    "notify_new_orders": {
+      "type": "boolean",
+      "default": true
+    },
+    "notify_low_stock": {
+      "type": "boolean",
+      "default": true
+    },
+    "invite_code": {
+      "type": "string"
     }
   },
   "required": [

@@ -8,6 +8,7 @@ import {
   Store,
   Users,
   Settings,
+  BarChart3,
 } from "lucide-react";
 
 export const navItems = {
@@ -16,7 +17,9 @@ export const navItems = {
     { label: "المستودع", path: "/merchant/warehouse", icon: Warehouse },
     { label: "إدارة الأسعار", path: "/merchant/prices", icon: Tags },
     { label: "الفواتير", path: "/merchant/invoices", icon: FileText },
-    { label: "تصفّح المنصة", path: "/merchant/browse", icon: Search },
+    { label: "تصفّح التجار", path: "/merchant/browse", icon: Search },
+    { label: "التقارير", path: "/merchant/reports", icon: BarChart3 },
+    { label: "الملف والإعدادات", path: "/merchant/profile", icon: Settings },
   ],
   buyer: [
     { label: "لوحة التحكم", path: "/buyer/dashboard", icon: LayoutDashboard },
