@@ -1,4 +1,3 @@
-// vite.config.js
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import path from 'node:path';
@@ -17,7 +16,6 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: false,
     chunkSizeWarningLimit: 1500,
-    // أضف هذا الجزء لحل مشكلة Cloudflare
     rollupOptions: {},
   },
 });
