@@ -17,7 +17,7 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: false,
     chunkSizeWarningLimit: 1500,
-    // أضف هاد الجزء:
+    // أضف هذا الجزء لحل مشكلة Cloudflare
     rollupOptions: {},
   },
 });
