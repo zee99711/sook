@@ -1,3 +1,4 @@
+// vite.config.js
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 import path from 'node:path';
@@ -12,5 +13,11 @@ export default defineConfig({
     alias: { '@': path.resolve(__dirname, './src') },
   },
   server: { port: 5173, host: true },
-  build: { outDir: 'dist', sourcemap: false, chunkSizeWarningLimit: 1500 },
+  build: {
+    outDir: 'dist',
+    sourcemap: false,
+    chunkSizeWarningLimit: 1500,
+    // أضف هاد الجزء:
+    rollupOptions: {},
+  },
 });
