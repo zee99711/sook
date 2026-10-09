@@ -1,9 +1,10 @@
-import QRCode from "qrcode";
-import html2canvas from "html2canvas";
-import { jsPDF } from "jspdf";
-import { base44 } from "@/api/base44Client";
+// src/lib/invoiceUtils.js
+import QRCode from 'qrcode';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
+import { supabase } from '@/api/supabaseClient';
 
-// توليد رقم فاتورة فريد: INV-YYYY-XXXX (لاحقة عشوائية لتفادي التصادم)
+// توليد رقم فاتورة فريد: INV-YYYY-XXXX
 export function generateInvoiceNumber() {
   const year = new Date().getFullYear();
   const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
@@ -11,13 +12,14 @@ export function generateInvoiceNumber() {
 }
 
 function template(invoice, ctx, qrData) {
-  const date = new Date(invoice.created_date || Date.now()).toLocaleDateString("ar-EG");
+  const date = new Date(invoice.created_date || Date.now()).toLocaleDateString('ar-EG');
   const rows = (invoice.items || [])
     .map(
       (it) =>
-        `<tr><td style="padding:10px;border-bottom:1px solid #e2e8f0">${it.name || ""}</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;text-align:center">${it.qty}</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;text-align:center">${(it.unit_price || 0).toFixed(2)}</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;text-align:center">${((it.qty || 0) * (it.unit_price || 0)).toFixed(2)}</td></tr>`
+        `<tr><td style="padding:10px;border-bottom:1px solid #e2e8f0">${it.name || ''}</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;text-align:center">${it.qty}</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;text-align:center">${(it.unit_price || 0).toFixed(2)}</td><td style="padding:10px;border-bottom:1px solid #e2e8f0;text-align:center">${((it.qty || 0) * (it.unit_price || 0)).toFixed(2)}</td></tr>`
     )
-    .join("");
+    .join('');
+
   return `
   <div dir="rtl" style="font-family:'Cairo','Tajawal',Tahoma,sans-serif;color:#1B2A4A;padding:40px;width:794px;background:#fff">
     <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #C9A961;padding-bottom:20px;margin-bottom:24px">
@@ -73,40 +75,62 @@ function template(invoice, ctx, qrData) {
   </div>`;
 }
 
-// يبني PDF من قالب HTML (لقطة) + QR، يرفعه للتخزين، ويعيد رابط الملف
+// توليد PDF وحفظه في Supabase Storage
 export async function generateAndSaveInvoicePDF(invoice, ctx) {
-  const verifyUrl = `${window.location.origin}/verify-invoice?n=${encodeURIComponent(invoice.invoice_number || "")}`;
+  const verifyUrl = `${window.location.origin}/verify-invoice?n=${encodeURIComponent(invoice.invoice_number || '')}`;
   const qrData = await QRCode.toDataURL(verifyUrl, { width: 120, margin: 1 });
 
-  const node = document.createElement("div");
+  const node = document.createElement('div');
   node.innerHTML = template(invoice, ctx, qrData);
-  node.style.position = "fixed";
-  node.style.top = "0";
-  node.style.right = "-9999px";
-  node.style.background = "#fff";
+  node.style.position = 'fixed';
+  node.style.top = '0';
+  node.style.right = '-9999px';
+  node.style.background = '#fff';
   document.body.appendChild(node);
 
   try {
-    const canvas = await html2canvas(node, { scale: 2, backgroundColor: "#fff", useCORS: true });
-    const img = canvas.toDataURL("image/png");
-    const pdf = new jsPDF("p", "mm", "a4");
+    const canvas = await html2canvas(node, {
+      scale: 2,
+      backgroundColor: '#fff',
+      useCORS: true,
+    });
+    const img = canvas.toDataURL('image/png');
+    const pdf = new jsPDF('p', 'mm', 'a4');
     const pageW = pdf.internal.pageSize.getWidth();
     const pageH = pdf.internal.pageSize.getHeight();
     const imgH = (canvas.height * pageW) / canvas.width;
     let heightLeft = imgH;
     let position = 0;
-    pdf.addImage(img, "PNG", 0, position, pageW, imgH);
+
+    pdf.addImage(img, 'PNG', 0, position, pageW, imgH);
     heightLeft -= pageH;
+
     while (heightLeft > 0) {
       position = heightLeft - imgH;
       pdf.addPage();
-      pdf.addImage(img, "PNG", 0, position, pageW, imgH);
+      pdf.addImage(img, 'PNG', 0, position, pageW, imgH);
       heightLeft -= pageH;
     }
-    const blob = pdf.output("blob");
-    const file = new File([blob], `${invoice.invoice_number || "invoice"}.pdf`, { type: "application/pdf" });
-    const { file_url } = await base44.integrations.Core.UploadPublicFile({ file });
-    return file_url;
+
+    const blob = pdf.output('blob');
+    const fileName = `${invoice.invoice_number || 'invoice'}-${Date.now()}.pdf`;
+    const filePath = `invoices/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('public')
+      .upload(filePath, blob, {
+        contentType: 'application/pdf',
+        cacheControl: '3600',
+        upsert: false,
+      });
+
+    if (uploadError) throw uploadError;
+
+    const { data: { publicUrl } } = supabase.storage
+      .from('public')
+      .getPublicUrl(filePath);
+
+    return publicUrl;
   } finally {
     document.body.removeChild(node);
   }

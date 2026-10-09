@@ -1,225 +1,324 @@
-import React, { useEffect, useState } from "react";
-import { base44 } from "@/api/base44Client";
-import PageHeader from "@/components/PageHeader";
-import EmptyState from "@/components/merchant/EmptyState";
-import { useMerchantData } from "@/hooks/useMerchantData";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Switch } from "@/components/ui/switch";
-import { Badge } from "@/components/ui/badge";
-import { Settings, Store, Save, Loader2, Upload, FileCheck, Copy, RefreshCw, ShieldCheck, Bell } from "lucide-react";
-import { toast } from "@/components/ui/use-toast";
+// src/pages/merchant/Profile.jsx
+import React, { useEffect, useState } from 'react';
+import { Settings, Save, Upload, Copy } from 'lucide-react';
+import PageHeader from '@/components/PageHeader';
+import { supabase } from '@/api/supabaseClient';
+import { useAuth } from '@/lib/AuthContext';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import toast from 'react-hot-toast';
 
-function genCode() {
-  return Math.random().toString(36).slice(2, 8).toUpperCase();
-}
+const REGIONS = [
+  'دمشق', 'ريف دمشق', 'حلب', 'حمص', 'حماة', 'اللاذقية', 'طرطوس',
+  'إدلب', 'دير الزور', 'الرقة', 'الحسكة', 'درعا', 'السويداء', 'القنيطرة',
+];
 
 export default function MerchantProfile() {
-  const { user, profile, loading, refresh } = useMerchantData();
-  const [form, setForm] = useState({ business_name: "", region: "", address: "" });
-  const [logoUploading, setLogoUploading] = useState(false);
+  const { user } = useAuth();
+  const [profile, setProfile] = useState({
+    full_name: '',
+    display_name: '',
+    phone: '',
+    region: '',
+  });
+  const [merchant, setMerchant] = useState({
+    business_name: '',
+    description: '',
+    region: '',
+    address: '',
+    invite_code: '',
+    license_verified: false,
+    license_file: '',
+  });
   const [saving, setSaving] = useState(false);
-  const [notif, setNotif] = useState({ notify_new_orders: true, notify_low_stock: true });
-  const [inviteCode, setInviteCode] = useState("");
-  const [copied, setCopied] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
-    if (profile) {
-      setForm({ business_name: profile.business_name || "", region: profile.region || "", address: profile.address || "" });
-      setNotif({ notify_new_orders: profile.notify_new_orders ?? true, notify_low_stock: profile.notify_low_stock ?? true });
-      setInviteCode(profile.invite_code || "");
+    if (!user?.id) return;
+
+    setProfile({
+      full_name: user.full_name || '',
+      display_name: user.display_name || '',
+      phone: user.phone || '',
+      region: user.region || '',
+    });
+
+    supabase
+      .from('merchant_profiles')
+      .select('*')
+      .eq('user_id', user.id)
+      .single()
+      .then(({ data }) => {
+        if (data) {
+          setMerchant({
+            business_name: data.business_name || '',
+            description: data.description || '',
+            region: data.region || '',
+            address: data.address || '',
+            invite_code: data.invite_code || '',
+            license_verified: data.license_verified || false,
+            license_file: data.commercial_license_file || '',
+          });
+        }
+      });
+  }, [user?.id]);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await supabase
+        .from('profiles')
+        .update({
+          full_name: profile.full_name,
+          display_name: profile.display_name,
+          phone: profile.phone,
+          region: profile.region,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', user.id);
+
+      const { data: existing } = await supabase
+        .from('merchant_profiles')
+        .select('id')
+        .eq('user_id', user.id)
+        .single();
+
+      if (existing) {
+        await supabase
+          .from('merchant_profiles')
+          .update({
+            business_name: merchant.business_name,
+            description: merchant.description,
+            region: merchant.region,
+            address: merchant.address,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('user_id', user.id);
+      } else {
+        await supabase.from('merchant_profiles').insert({
+          user_id: user.id,
+          business_name: merchant.business_name,
+          description: merchant.description,
+          region: merchant.region,
+          address: merchant.address,
+        });
+      }
+
+      toast.success('تم الحفظ');
+    } catch (err) {
+      console.error(err);
+      toast.error('فشل الحفظ');
+    } finally {
+      setSaving(false);
     }
-  }, [profile]);
+  };
 
-  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
-
-  const handleLogo = async (e) => {
+  const uploadLicense = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setLogoUploading(true);
+
+    setUploading(true);
     try {
-      const { file_url } = await base44.integrations.Core.UploadPublicFile({ file });
-      await base44.entities.MerchantProfile.update(profile.id, { logo_url: file_url });
-      toast({ title: "تم رفع الشعار" });
-      refresh();
+      const filePath = `licenses/${user.id}-${Date.now()}.${file.name.split('.').pop()}`;
+      const { error } = await supabase.storage
+        .from('public')
+        .upload(filePath, file, { upsert: true });
+
+      if (error) throw error;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('public')
+        .getPublicUrl(filePath);
+
+      await supabase
+        .from('merchant_profiles')
+        .upsert({
+          user_id: user.id,
+          commercial_license_file: publicUrl,
+        }, { onConflict: 'user_id' });
+
+      setMerchant((prev) => ({ ...prev, license_file: publicUrl }));
+      toast.success('تم رفع السجل التجاري — سيتم المراجعة قريباً');
     } catch (err) {
-      toast({ title: err.message || "فشل الرفع", variant: "destructive" });
+      console.error(err);
+      toast.error('فشل الرفع');
     } finally {
-      setLogoUploading(false);
+      setUploading(false);
     }
   };
 
-  const saveInfo = async () => {
-    setSaving(true);
-    try {
-      await base44.entities.MerchantProfile.update(profile.id, form);
-      toast({ title: "تم حفظ بيانات المحل" });
-      refresh();
-    } catch (err) {
-      toast({ title: err.message || "فشل الحفظ", variant: "destructive" });
-    } finally {
-      setSaving(false);
-    }
+  const copyInviteLink = () => {
+    const link = `${window.location.origin}/register?invite=${merchant.invite_code}`;
+    navigator.clipboard.writeText(link);
+    toast.success('تم نسخ رابط الدعوة');
   };
-
-  const toggleNotif = async (key, val) => {
-    setNotif((n) => ({ ...n, [key]: val }));
-    try {
-      await base44.entities.MerchantProfile.update(profile.id, { [key]: val });
-    } catch {
-      toast({ title: "تعذّر تحديث الإعداد", variant: "destructive" });
-    }
-  };
-
-  const regenerateCode = async () => {
-    const code = genCode();
-    setSaving(true);
-    try {
-      await base44.entities.MerchantProfile.update(profile.id, { invite_code: code });
-      setInviteCode(code);
-      toast({ title: "تم إنشاء كود دعوة جديد" });
-    } catch (err) {
-      toast({ title: err.message || "فشل", variant: "destructive" });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const inviteLink = inviteCode ? `${window.location.origin}/register?invite=${inviteCode}` : "";
-
-  const copyLink = async () => {
-    try {
-      await navigator.clipboard.writeText(inviteLink);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      toast({ title: "تعذّر النسخ", variant: "destructive" });
-    }
-  };
-
-  const viewLicense = async () => {
-    if (!profile?.commercial_license_file) return;
-    try {
-      const { signed_url } = await base44.integrations.Core.CreateFileSignedUrl({ file_uri: profile.commercial_license_file });
-      window.open(signed_url, "_blank");
-    } catch (err) {
-      toast({ title: err.message || "تعذّر فتح الملف", variant: "destructive" });
-    }
-  };
-
-  if (loading) return <EmptyState loading />;
-  if (!profile) return <EmptyState icon={Store} title="لا يوجد ملف تاجر" subtitle="يرجى إكمال بيانات التسجيل أولاً" />;
 
   return (
     <div>
-      <PageHeader title="الملف الشخصي والإعدادات" subtitle="بيانات المحل والإشعارات وكود الدعوة" icon={Settings} />
+      <PageHeader
+        icon={Settings}
+        title="الملف والإعدادات"
+        subtitle="إدارة بياناتك الشخصية وبيانات المتجر"
+        action={
+          <Button
+            onClick={save}
+            disabled={saving}
+            className="bg-navy text-white hover:bg-navy/90"
+          >
+            <Save className="w-4 h-4 ml-2" />
+            {saving ? 'جارٍ الحفظ...' : 'حفظ التعديلات'}
+          </Button>
+        }
+      />
 
-      <div className="grid lg:grid-cols-3 gap-6">
-        {/* الشعار + حالة التحقق */}
-        <div className="bg-card rounded-2xl border border-border p-5">
-          <h3 className="font-bold text-navy mb-4">شعار المحل</h3>
-          <div className="flex flex-col items-center">
-            <div className="w-28 h-28 rounded-2xl bg-secondary border border-border overflow-hidden flex items-center justify-center mb-4">
-              {profile.logo_url ? (
-                <img src={profile.logo_url} alt="شعار" className="w-full h-full object-cover" />
-              ) : (
-                <Store className="w-10 h-10 text-muted-foreground" />
-              )}
-            </div>
-            <label className="cursor-pointer">
-              <Button asChild variant="outline" className="h-10" disabled={logoUploading}>
-                <span>
-                  {logoUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                  رفع شعار
-                </span>
-              </Button>
-              <input type="file" accept="image/*" className="hidden" onChange={handleLogo} />
-            </label>
-            <div className="mt-5 w-full flex items-center justify-between p-3 rounded-xl bg-secondary/60">
-              <span className="text-sm text-muted-foreground">حالة التحقق</span>
-              {profile.license_verified ? (
-                <Badge className="bg-emerald-100 text-emerald-700"><ShieldCheck className="w-3 h-3" /> موثّق</Badge>
-              ) : (
-                <Badge className="bg-amber-100 text-amber-700">قيد المراجعة</Badge>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* بيانات المحل */}
-        <div className="lg:col-span-2 bg-card rounded-2xl border border-border p-5">
-          <h3 className="font-bold text-navy mb-4">بيانات المحل</h3>
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>اسم المحل</Label>
-              <Input value={form.business_name} onChange={set("business_name")} className="h-11" />
-            </div>
-            <div className="space-y-2">
-              <Label>المنطقة</Label>
-              <Input value={form.region} onChange={set("region")} className="h-11" placeholder="المدينة" />
-            </div>
-            <div className="space-y-2 sm:col-span-2">
-              <Label>العنوان</Label>
-              <Textarea rows={2} value={form.address} onChange={set("address")} placeholder="العنوان التفصيلي" />
-            </div>
-          </div>
-          <div className="mt-5 flex items-center justify-between p-3 rounded-xl bg-secondary/60">
-            <div className="flex items-center gap-2">
-              <FileCheck className="w-5 h-5 text-gold" />
-              <span className="text-sm">السجل التجاري</span>
-            </div>
-            <Button variant="outline" size="sm" onClick={viewLicense} disabled={!profile.commercial_license_file}>عرض / تحميل</Button>
-          </div>
-          <div className="mt-4 flex justify-end">
-            <Button onClick={saveInfo} className="bg-gold text-navy hover:bg-gold/90 h-11" disabled={saving}>
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              حفظ البيانات
-            </Button>
-          </div>
-        </div>
-
-        {/* إعدادات الإشعارات */}
-        <div className="bg-card rounded-2xl border border-border p-5">
-          <h3 className="font-bold text-navy mb-4 flex items-center gap-2"><Bell className="w-5 h-5 text-gold" /> الإشعارات</h3>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* البيانات الشخصية */}
+        <div className="bg-card rounded-2xl border border-border p-6">
+          <h2 className="text-lg font-bold text-navy mb-4">البيانات الشخصية</h2>
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-navy">إشعار الطلبات الجديدة</p>
-                <p className="text-xs text-muted-foreground">عند استلام طلب جديد</p>
-              </div>
-              <Switch checked={notif.notify_new_orders} onCheckedChange={(v) => toggleNotif("notify_new_orders", v)} />
+            <div>
+              <Label>الاسم الكامل</Label>
+              <Input
+                value={profile.full_name}
+                onChange={(e) => setProfile({ ...profile, full_name: e.target.value })}
+              />
             </div>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-navy">تنبيه نفاد المخزون</p>
-                <p className="text-xs text-muted-foreground">عند نقص كمية منتج</p>
-              </div>
-              <Switch checked={notif.notify_low_stock} onCheckedChange={(v) => toggleNotif("notify_low_stock", v)} />
+            <div>
+              <Label>الاسم المعروض</Label>
+              <Input
+                value={profile.display_name}
+                onChange={(e) => setProfile({ ...profile, display_name: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label>البريد الإلكتروني</Label>
+              <Input value={user?.email || ''} disabled dir="ltr" />
+            </div>
+            <div>
+              <Label>رقم الجوال</Label>
+              <Input
+                value={profile.phone}
+                onChange={(e) => setProfile({ ...profile, phone: e.target.value })}
+                dir="ltr"
+              />
             </div>
           </div>
+        </div>
+
+        {/* بيانات المتجر */}
+        <div className="bg-card rounded-2xl border border-border p-6">
+          <h2 className="text-lg font-bold text-navy mb-4">بيانات المتجر</h2>
+          <div className="space-y-4">
+            <div>
+              <Label>اسم النشاط التجاري</Label>
+              <Input
+                value={merchant.business_name}
+                onChange={(e) =>
+                  setMerchant({ ...merchant, business_name: e.target.value })
+                }
+              />
+            </div>
+            <div>
+              <Label>المنطقة</Label>
+              <select
+                value={merchant.region}
+                onChange={(e) =>
+                  setMerchant({ ...merchant, region: e.target.value })
+                }
+                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="">اختر المنطقة</option>
+                {REGIONS.map((r) => (
+                  <option key={r} value={r}>
+                    {r}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <Label>العنوان التفصيلي</Label>
+              <Input
+                value={merchant.address}
+                onChange={(e) =>
+                  setMerchant({ ...merchant, address: e.target.value })
+                }
+              />
+            </div>
+            <div>
+              <Label>وصف المتجر</Label>
+              <textarea
+                value={merchant.description}
+                onChange={(e) =>
+                  setMerchant({ ...merchant, description: e.target.value })
+                }
+                rows={3}
+                className="w-full rounded-md border border-input bg-background p-3 text-sm"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* السجل التجاري */}
+        <div className="bg-card rounded-2xl border border-border p-6">
+          <h2 className="text-lg font-bold text-navy mb-4">السجل التجاري</h2>
+          {merchant.license_verified ? (
+            <div className="bg-green-50 text-green-700 p-3 rounded-lg text-sm font-medium">
+              ✅ تم التحقق من سجلك التجاري
+            </div>
+          ) : merchant.license_file ? (
+            <div className="bg-yellow-50 text-yellow-700 p-3 rounded-lg text-sm font-medium">
+              ⏳ قيد المراجعة من قبل الإدارة
+            </div>
+          ) : (
+            <div className="bg-red-50 text-red-700 p-3 rounded-lg text-sm font-medium mb-4">
+              ⚠️ لم يتم رفع السجل التجاري بعد
+            </div>
+          )}
+
+          <label className="mt-4 block">
+            <input
+              type="file"
+              accept="image/*,application/pdf"
+              onChange={uploadLicense}
+              className="hidden"
+            />
+            <span className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border-2 border-dashed border-border hover:border-gold cursor-pointer transition-colors text-sm">
+              <Upload className="w-4 h-4" />
+              {uploading ? 'جارٍ الرفع...' : 'رفع صورة السجل التجاري'}
+            </span>
+          </label>
+
+          {merchant.license_file && (
+            <a
+              href={merchant.license_file}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-3 block text-xs text-gold hover:underline"
+            >
+              عرض الملف المرفوع
+            </a>
+          )}
         </div>
 
         {/* كود الدعوة */}
-        <div className="lg:col-span-2 bg-card rounded-2xl border border-border p-5">
-          <h3 className="font-bold text-navy mb-1">كود الدعوة الخاص بالزبائن</h3>
-          <p className="text-sm text-muted-foreground mb-4">شارك هذا الرابط مع زبائنك الخاصين ليشتركوا ويرتبطوا بمتجرك مباشرة.</p>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2 px-4 h-12 rounded-xl bg-secondary font-mono text-lg font-bold text-navy tracking-widest">
-              {inviteCode || "—"}
-            </div>
-            <Button variant="outline" className="h-12" onClick={regenerateCode} disabled={saving}>
-              <RefreshCw className="w-4 h-4" /> {inviteCode ? "كود جديد" : "إنشاء كود"}
+        <div className="bg-card rounded-2xl border border-border p-6">
+          <h2 className="text-lg font-bold text-navy mb-4">كود الدعوة</h2>
+          <p className="text-sm text-muted-foreground mb-3">
+            شارك هذا الرابط مع زبائنك الخاصين لربطهم بحسابك:
+          </p>
+          <div className="bg-secondary rounded-lg p-3 flex items-center justify-between gap-2">
+            <code className="text-sm font-mono text-navy break-all" dir="ltr">
+              {`${window.location.origin}/register?invite=${merchant.invite_code || '...'}`}
+            </code>
+            <Button size="sm" variant="outline" onClick={copyInviteLink}>
+              <Copy className="w-4 h-4" />
             </Button>
           </div>
-          {inviteLink && (
-            <div className="mt-4 flex items-center gap-2">
-              <Input readOnly value={inviteLink} className="h-11 font-mono text-xs" />
-              <Button variant="outline" className="h-11" onClick={copyLink}>
-                <Copy className="w-4 h-4" /> {copied ? "تم النسخ" : "نسخ"}
-              </Button>
-            </div>
+          {merchant.invite_code && (
+            <p className="text-xs text-muted-foreground mt-2">
+              كود الدعوة: <strong className="text-navy">{merchant.invite_code}</strong>
+            </p>
           )}
         </div>
       </div>

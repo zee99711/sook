@@ -1,60 +1,107 @@
-import React from "react";
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import Reveal from "@/components/public/Reveal";
+// src/pages/public/FAQ.jsx
+import React, { useState } from 'react';
+import { HelpCircle, ChevronDown } from 'lucide-react';
 
-const groups = [
+const FAQS = [
   {
-    title: "التسجيل والحسابات",
-    items: [
-      { q: "كيف أنشئ حساب تاجر؟", a: "اضغط «إنشاء حساب»، اختر «تاجر»، أدخل بياناتك وارفع صورة السجل التجاري. يتم مراجعة طلبك من الإدارة خلال وقت قصير، وستصلك إشعار بالموافقة أو الرفض." },
-      { q: "هل أحتاج إلى سجل تجاري؟", a: "نعم، السجل التجاري الساري شرط أساسي لتسجيل التاجر لضمان سوق جاد. أما المشتري فلا يحتاجه." },
-      { q: "هل يمكنني تغيير نوع الحساب لاحقاً؟", a: "لتغيير نوع الحساب (من مشتري إلى تاجر مثلاً) تواصل مع الإدارة عبر صفحة «تواصل معنا»." },
-    ],
+    q: 'ما هو سوق الوسيط؟',
+    a: 'سوق الوسيط هو منصة تجارية B2B عربية تربط بين التجار الذين لديهم سجلات تجارية موثقة والمشترين من أصحاب المتاجر الصغيرة أو التجار الآخرين. نوفر بيئة آمنة للتبادل التجاري مع إدارة كاملة للمنتجات والفواتير والمحادثات.',
   },
   {
-    title: "العمليات والفواتير",
-    items: [
-      { q: "كيف تُحسب العمولة؟", a: "تُحتسب العمولة كنسبة من قيمة الطلب حسب طريقة الدفع المختارة، وتُخصم تلقائياً من مستحقات التاجر. يمكنك الاطلاع على النسب من سلة الطلب أو من إعدادات الأدمن." },
-      { q: "هل أستلم فاتورة رسمية؟", a: "نعم، تولّد المنصة فاتورة PDF تلقائياً مع رقم فاتورة ورمز QR للتحقق، وترسلها للتاجر والمشتري." },
-      { q: "ما طرق الدفع المتاحة؟", a: "الدفع عند التسليم، محفظة USDT، شام كاش، وسيريتل كاش. قد تختلف العمولة حسب الطريقة." },
-    ],
+    q: 'كيف أسجل كتاجر؟',
+    a: 'اضغط على "إنشاء حساب"، اختر "تاجر"، وأدخل بياناتك. بعد التسجيل، ارفع صورة السجل التجاري من صفحة "الملف والإعدادات". سيقوم فريقنا بمراجعة طلبك خلال 24-48 ساعة.',
   },
   {
-    title: "المنتجات والتواصل",
-    items: [
-      { q: "هل يمكن للزائر تصفّح المنتجات؟", a: "التصفّح متاح بعد إنشاء حساب مجاني، أما الشراء فيتطلب حساب مشتري مفعّل." },
-      { q: "كيف أتواصل مع التاجر؟", a: "من صفحة المنتج أو من قائمة التجار، اضغط «مراسلة» لفتح محادثة مباشرة مع دعم المرفقات والإشعارات." },
-      { q: "كيف أقيّم التاجر؟", a: "بعد إتمام الطلب وتسليمه، يظهر زر «قيّم» في صفحة طلباتك لإرسال تقييم من نجمة إلى خمس مع تعليق." },
-    ],
+    q: 'ما هي طرق الدفع المتاحة؟',
+    a: 'نوفر عدة طرق دفع: الدفع عند التسليم، محفظة USDT، شام كاش، وسيريتل كاش. لكل طريقة عمولة مختلفة تظهر بشكل واضح عند إتمام الطلب.',
+  },
+  {
+    q: 'كيف يتم حساب العمولات؟',
+    a: 'العمولات تُحسب على المشتري عند الدفع، وتختلف حسب طريقة الدفع المختارة. التاجر يستلم صافي المبلغ بعد خصم العمولة عند التسليم. النسب قابلة للتعديل من قبل الإدارة.',
+  },
+  {
+    q: 'هل يمكنني إلغاء طلب؟',
+    a: 'نعم، يمكنك إلغاء الطلب قبل أن يؤكده التاجر. بعد التأكيد، لا يمكن الإلغاء إلا بموافقة التاجر. تواصل معنا إذا واجهت مشكلة.',
+  },
+  {
+    q: 'كيف أتواصل مع تاجر معين؟',
+    a: 'من صفحة تفاصيل المنتج أو صفحة التاجر، اضغط على زر "المحادثة" أو اذهب مباشرة لصفحة "المحادثات" لبدء محادثة فورية.',
+  },
+  {
+    q: 'كيف يتم التحقق من السجلات التجارية؟',
+    a: 'يقوم فريق الإدارة بمراجعة كل سجل تجاري يدوياً خلال 24-48 ساعة. يتم التحقق من صحة المستند ومطابقته للبيانات المسجلة.',
+  },
+  {
+    q: 'هل بياناتي آمنة؟',
+    a: 'نعم، نستخدم أحدث تقنيات التشفير (SSL/TLS) وقواعد بيانات آمنة مع سياسات RLS. لا نشارك بياناتك مع أي طرف ثالث إلا لأغراض الفاتورة أو بموجب القانون.',
+  },
+  {
+    q: 'هل هناك اشتراك شهري؟',
+    a: 'حالياً المنصة مجانية بالكامل للتسجيل. قد نضيف خطط اشتراك متقدمة في المستقبل بميزات إضافية، وسنعلمك مسبقاً.',
+  },
+  {
+    q: 'كيف أبلّغ عن مشكلة أو تاجر مخالف؟',
+    a: 'يمكنك التواصل معنا عبر صفحة "اتصل بنا" أو مراسلتنا مباشرة. سيتعامل فريقنا مع أي شكوى بجدية وسرعة.',
   },
 ];
 
 export default function FAQ() {
-  return (
-    <div className="max-w-3xl mx-auto px-4 sm:px-6 py-14">
-      <Reveal className="text-center mb-12">
-        <h1 className="text-3xl sm:text-4xl font-bold text-navy mb-3">الأسئلة الشائعة</h1>
-        <p className="text-muted-foreground text-lg">إجابات لأكثر الأسئلة شيوعاً حول سوق الوسيط.</p>
-      </Reveal>
+  const [open, setOpen] = useState(null);
 
-      <div className="space-y-10">
-        {groups.map((g, gi) => (
-          <Reveal key={g.title} delay={gi * 0.05}>
-            <h2 className="font-bold text-navy text-xl mb-4 flex items-center gap-2">
-              <span className="w-8 h-8 rounded-lg bg-gold text-navy flex items-center justify-center text-sm font-bold">{gi + 1}</span>
-              {g.title}
-            </h2>
-            <Accordion type="single" collapsible className="bg-card rounded-2xl border border-border px-4">
-              {g.items.map((it, i) => (
-                <AccordionItem key={i} value={`${gi}-${i}`} className="border-b border-border last:border-0">
-                  <AccordionTrigger className="text-right font-semibold text-navy text-base hover:no-underline py-5">{it.q}</AccordionTrigger>
-                  <AccordionContent className="text-muted-foreground leading-relaxed pb-5">{it.a}</AccordionContent>
-                </AccordionItem>
-              ))}
-            </Accordion>
-          </Reveal>
-        ))}
-      </div>
+  return (
+    <div>
+      <section className="bg-navy text-white py-16">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 text-center">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gold mb-4">
+            <HelpCircle className="w-7 h-7 text-navy" />
+          </div>
+          <h1 className="text-4xl font-bold mb-3">الأسئلة الشائعة</h1>
+          <p className="text-white/80">إجابات على أكثر الأسئلة تكراراً</p>
+        </div>
+      </section>
+
+      <section className="max-w-4xl mx-auto px-4 sm:px-6 py-16">
+        <div className="space-y-3">
+          {FAQS.map((item, i) => (
+            <div
+              key={i}
+              className="bg-card rounded-2xl border border-border overflow-hidden"
+            >
+              <button
+                onClick={() => setOpen(open === i ? null : i)}
+                className="w-full flex items-center justify-between p-5 text-right hover:bg-secondary/30 transition-colors"
+              >
+                <span className="font-semibold text-navy flex-1">
+                  {item.q}
+                </span>
+                <ChevronDown
+                  className={`w-5 h-5 text-muted-foreground transition-transform shrink-0 ml-3 ${
+                    open === i ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+              {open === i && (
+                <div className="px-5 pb-5 pt-0 text-sm text-muted-foreground leading-relaxed border-t border-border">
+                  <div className="pt-4">{item.a}</div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-10 bg-gold/10 border border-gold/30 rounded-2xl p-6 text-center">
+          <p className="text-navy font-medium mb-1">لم تجد إجابة سؤالك؟</p>
+          <p className="text-sm text-muted-foreground mb-4">
+            فريقنا جاهز لمساعدتك
+          </p>
+          <a
+            href="/contact"
+            className="inline-block px-6 py-2.5 bg-navy text-white rounded-xl hover:bg-navy/90 text-sm font-medium"
+          >
+            تواصل معنا
+          </a>
+        </div>
+      </section>
     </div>
   );
 }

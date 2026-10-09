@@ -1,131 +1,221 @@
-import React, { useMemo, useState } from "react";
-import { base44 } from "@/api/base44Client";
-import { useMerchantData } from "@/hooks/useMerchantData";
-import { notifyBuyerOnStatus } from "@/lib/notify";
-import { printInvoice } from "@/lib/exportUtils";
-import { useAuth } from "@/lib/AuthContext";
-import { logAction } from "@/lib/audit";
-import EmptyState from "@/components/merchant/EmptyState";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
-import { FileText, Check, X, Download, Printer, Loader2, Truck, PackageCheck } from "lucide-react";
-import { toast } from "@/components/ui/use-toast";
-
-const payLabel = { unpaid: "غير مدفوع", partial: "مدفوع جزئياً", paid: "مدفوع" };
-const payTone = { unpaid: "bg-red-100 text-red-700", partial: "bg-amber-100 text-amber-700", paid: "bg-emerald-100 text-emerald-700" };
+// src/pages/merchant/Invoices.jsx
+import React, { useEffect, useState, useMemo } from 'react';
+import { FileText, Download, Check, X, Truck, Package } from 'lucide-react';
+import PageHeader from '@/components/PageHeader';
+import { invoicesAPI, profilesAPI } from '@/api/entities';
+import { useAuth } from '@/lib/AuthContext';
+import { notifyBuyerOnStatus } from '@/lib/notify';
+import { Button } from '@/components/ui/button';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import toast from 'react-hot-toast';
 
 export default function MerchantInvoices() {
-  const { user, invoices, loading, refresh } = useMerchantData();
-  const { user: authUser } = useAuth();
-  const [busy, setBusy] = useState(null);
+  const { user } = useAuth();
+  const [invoices, setInvoices] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState('pending');
 
-  const tabs = useMemo(
+  const load = async () => {
+    if (!user?.id) return;
+    try {
+      const data = await invoicesAPI.listByMerchant(user.id);
+      setInvoices(data);
+    } catch (err) {
+      toast.error('فشل تحميل الفواتير');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  const grouped = useMemo(
     () => ({
-      new: invoices.filter((i) => i.delivery_status === "pending" && i.status !== "cancelled"),
-      delivering: invoices.filter((i) => ["preparing", "shipped"].includes(i.delivery_status)),
-      completed: invoices.filter((i) => i.delivery_status === "delivered"),
+      pending: invoices.filter((i) => i.status === 'pending'),
+      confirmed: invoices.filter((i) => i.status === 'confirmed'),
+      shipped: invoices.filter((i) => i.status === 'shipped'),
+      delivered: invoices.filter((i) => i.status === 'delivered'),
     }),
     [invoices]
   );
 
-  const act = async (invoice, patch, statusKey, msg) => {
-    setBusy(invoice.id);
+  const updateStatus = async (invoice, newStatus) => {
     try {
-      const updated = await base44.entities.Invoice.update(invoice.id, patch);
-      const merchantName = user?.display_name || user?.full_name || "تاجر";
-      if (statusKey) await notifyBuyerOnStatus({ ...invoice, ...patch }, merchantName, statusKey);
-      await logAction(authUser, statusKey || "update_invoice", invoice.invoice_number || invoice.id, JSON.stringify(patch));
-      toast({ title: msg });
-      refresh();
+      await invoicesAPI.updateStatus(invoice.id, newStatus);
+
+      // إشعار المشتري
+      const statusKey =
+        newStatus === 'confirmed'
+          ? 'confirmed'
+          : newStatus === 'shipped'
+          ? 'shipped'
+          : newStatus === 'delivered'
+          ? 'delivered'
+          : newStatus === 'rejected'
+          ? 'rejected'
+          : null;
+
+      if (statusKey) {
+        const merchantName = user.display_name || user.full_name || 'التاجر';
+        await notifyBuyerOnStatus(invoice, merchantName, statusKey);
+      }
+
+      toast.success('تم تحديث الحالة');
+      load();
     } catch (err) {
-      toast({ title: err.message || "فشل", variant: "destructive" });
-    } finally {
-      setBusy(null);
+      console.error(err);
+      toast.error('فشل التحديث');
     }
   };
 
-  const buyerRef = (id) => (id ? `مشتري #${id.slice(-4)}` : "—");
+  const InvoiceRow = ({ inv }) => {
+    const statusLabel = (s) =>
+      ({
+        pending: 'قيد المراجعة',
+        confirmed: 'مؤكد',
+        shipped: 'قيد التسليم',
+        delivered: 'مكتمل',
+        rejected: 'مرفوض',
+        cancelled: 'ملغى',
+      }[s] || s);
 
-  const handlePDF = (inv) => {
-    if (inv.pdf_url) { window.open(inv.pdf_url, "_blank"); return; }
-    printInvoice(inv, buyerRef(inv.buyer_id), user?.display_name || "تاجر", inv.items || []);
+    return (
+      <div className="bg-card rounded-2xl border border-border p-4 mb-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-navy/10 flex items-center justify-center">
+              <FileText className="w-5 h-5 text-navy" />
+            </div>
+            <div>
+              <p className="font-bold text-navy">{inv.invoice_number}</p>
+              <p className="text-xs text-muted-foreground">
+                {new Date(inv.created_at).toLocaleDateString('ar-EG')} ·{' '}
+                {inv.payment_method}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="text-left">
+              <p className="text-xs text-muted-foreground">الإجمالي</p>
+              <p className="font-bold text-navy">
+                {Number(inv.total).toFixed(2)} ر.س
+              </p>
+            </div>
+            <span className="text-xs px-3 py-1 rounded-full bg-navy/10 text-navy font-medium">
+              {statusLabel(inv.status)}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border">
+          {inv.pdf_url && (
+            <a
+              href={inv.pdf_url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border hover:bg-secondary text-xs"
+            >
+              <Download className="w-3.5 h-3.5" />
+              تحميل PDF
+            </a>
+          )}
+
+          {inv.status === 'pending' && (
+            <>
+              <Button
+                size="sm"
+                onClick={() => updateStatus(inv, 'confirmed')}
+                className="bg-green-600 text-white hover:bg-green-700"
+              >
+                <Check className="w-3.5 h-3.5 ml-1" />
+                تأكيد
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => updateStatus(inv, 'rejected')}
+                className="text-destructive border-destructive/30"
+              >
+                <X className="w-3.5 h-3.5 ml-1" />
+                رفض
+              </Button>
+            </>
+          )}
+
+          {inv.status === 'confirmed' && (
+            <Button
+              size="sm"
+              onClick={() => updateStatus(inv, 'shipped')}
+              className="bg-purple-600 text-white hover:bg-purple-700"
+            >
+              <Truck className="w-3.5 h-3.5 ml-1" />
+              شحن
+            </Button>
+          )}
+
+          {inv.status === 'shipped' && (
+            <Button
+              size="sm"
+              onClick={() => updateStatus(inv, 'delivered')}
+              className="bg-green-600 text-white hover:bg-green-700"
+            >
+              <Package className="w-3.5 h-3.5 ml-1" />
+              تسليم
+            </Button>
+          )}
+        </div>
+      </div>
+    );
   };
 
-  const renderTable = (list, kind) => (
-    list.length === 0 ? (
-      <EmptyState icon={FileText} title="لا توجد فواتير" subtitle="ستظهر هنا عند استلام طلبات جديدة" />
-    ) : (
-      <div className="bg-card rounded-2xl border border-border overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="bg-secondary/60 text-muted-foreground">
-            <tr>
-              <th className="text-right px-4 py-3 font-medium">رقم الفاتورة</th>
-              <th className="text-right px-4 py-3 font-medium">المشتري</th>
-              <th className="text-right px-4 py-3 font-medium">التاريخ</th>
-              <th className="text-right px-4 py-3 font-medium">الإجمالي</th>
-              <th className="text-right px-4 py-3 font-medium">العمولة</th>
-              <th className="text-right px-4 py-3 font-medium">الصافي</th>
-              <th className="text-right px-4 py-3 font-medium">الحالة</th>
-              <th className="text-right px-4 py-3 font-medium">إجراءات</th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.map((inv) => (
-              <tr key={inv.id} className="border-t border-border hover:bg-secondary/30">
-                <td className="px-4 py-3 font-mono text-xs">{inv.invoice_number || inv.id.slice(0, 8)}</td>
-                <td className="px-4 py-3">{buyerRef(inv.buyer_id)}</td>
-                <td className="px-4 py-3 text-muted-foreground">{new Date(inv.created_date).toLocaleDateString("ar-EG")}</td>
-                <td className="px-4 py-3 font-semibold">{(inv.total || 0).toLocaleString("ar-EG")} ر.س</td>
-                <td className="px-4 py-3 text-muted-foreground">{(inv.commission || 0).toLocaleString("ar-EG", { maximumFractionDigits: 2 })}</td>
-                <td className="px-4 py-3 font-medium">{(inv.net_amount || 0).toLocaleString("ar-EG")} ر.س</td>
-                <td className="px-4 py-3"><span className={`px-2 py-1 rounded-md text-xs font-medium ${payTone[inv.payment_status] || "bg-secondary"}`}>{payLabel[inv.payment_status] || inv.payment_status}</span></td>
-                <td className="px-4 py-3">
-                  <div className="flex flex-wrap gap-1.5">
-                    {kind === "new" && (
-                      <>
-                        <Button size="sm" className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => act(inv, { delivery_status: "preparing" }, "confirmed", "تم تأكيد الطلب وإشعار المشتري")} disabled={busy === inv.id}>
-                          {busy === inv.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} تأكيد
-                        </Button>
-                        <Button size="sm" variant="outline" className="h-8 text-red-600 border-red-200 hover:bg-red-50" onClick={() => act(inv, { status: "cancelled" }, "rejected", "تم رفض الطلب")} disabled={busy === inv.id}>
-                          <X className="w-3 h-3" /> رفض
-                        </Button>
-                      </>
-                    )}
-                    {kind === "delivering" && inv.delivery_status === "preparing" && (
-                      <Button size="sm" className="h-8 bg-indigo-600 hover:bg-indigo-700 text-white" onClick={() => act(inv, { delivery_status: "shipped" }, "shipped", "تم شحن الطلب")} disabled={busy === inv.id}>
-                        <Truck className="w-3 h-3" /> شحن
-                      </Button>
-                    )}
-                    {kind === "delivering" && inv.delivery_status === "shipped" && (
-                      <Button size="sm" className="h-8 bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => act(inv, { delivery_status: "delivered" }, "delivered", "تم تسليم الطلب")} disabled={busy === inv.id}>
-                        <PackageCheck className="w-3 h-3" /> تسليم
-                      </Button>
-                    )}
-                    <Button size="sm" variant="ghost" className="h-8" onClick={() => handlePDF(inv)}><Download className="w-3 h-3" /> PDF</Button>
-                    <Button size="sm" variant="ghost" className="h-8" onClick={() => handlePDF(inv)}><Printer className="w-3 h-3" /> طباعة</Button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    )
+  const EmptyState = ({ message }) => (
+    <div className="bg-card rounded-2xl border border-dashed border-border p-12 text-center">
+      <FileText className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+      <p className="text-muted-foreground">{message}</p>
+    </div>
   );
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-navy mb-6 flex items-center gap-2"><FileText className="w-6 h-6 text-gold" /> الفواتير</h1>
-      <Tabs defaultValue="new">
-        <TabsList className="bg-card border border-border p-1 flex-wrap">
-          <TabsTrigger value="new">طلبات جديدة ({tabs.new.length})</TabsTrigger>
-          <TabsTrigger value="delivering">قيد التسليم ({tabs.delivering.length})</TabsTrigger>
-          <TabsTrigger value="completed">مكتملة ({tabs.completed.length})</TabsTrigger>
-        </TabsList>
-        <TabsContent value="new" className="mt-5">{loading ? <EmptyState loading /> : renderTable(tabs.new, "new")}</TabsContent>
-        <TabsContent value="delivering" className="mt-5">{loading ? <EmptyState loading /> : renderTable(tabs.delivering, "delivering")}</TabsContent>
-        <TabsContent value="completed" className="mt-5">{loading ? <EmptyState loading /> : renderTable(tabs.completed, "completed")}</TabsContent>
-      </Tabs>
+      <PageHeader
+        icon={FileText}
+        title="الفواتير"
+        subtitle={`${invoices.length} فاتورة`}
+      />
+
+      {loading ? (
+        <div className="text-center py-12 text-muted-foreground">جارٍ التحميل...</div>
+      ) : (
+        <Tabs value={tab} onValueChange={setTab}>
+          <TabsList className="mb-6">
+            <TabsTrigger value="pending">
+              جديدة ({grouped.pending.length})
+            </TabsTrigger>
+            <TabsTrigger value="confirmed">
+              مؤكدة ({grouped.confirmed.length})
+            </TabsTrigger>
+            <TabsTrigger value="shipped">
+              قيد التسليم ({grouped.shipped.length})
+            </TabsTrigger>
+            <TabsTrigger value="delivered">
+              مكتملة ({grouped.delivered.length})
+            </TabsTrigger>
+          </TabsList>
+
+          {['pending', 'confirmed', 'shipped', 'delivered'].map((key) => (
+            <TabsContent key={key} value={key}>
+              {grouped[key].length === 0 ? (
+                <EmptyState message="لا توجد فواتير في هذه الحالة" />
+              ) : (
+                grouped[key].map((inv) => <InvoiceRow key={inv.id} inv={inv} />)
+              )}
+            </TabsContent>
+          ))}
+        </Tabs>
+      )}
     </div>
   );
 }

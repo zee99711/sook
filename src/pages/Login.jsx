@@ -1,136 +1,180 @@
-import React, { useState } from "react";
-import { Link } from "react-router-dom";
-import { base44 } from "@/api/base44Client";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { LogIn, Mail, Lock, Loader2 } from "lucide-react";
-import AuthLayout from "@/components/AuthLayout";
-import GoogleIcon from "@/components/GoogleIcon";
-import { safeReturnTo } from "@/lib/authReturnTo";
-import { getEffectiveRole, roleDashboardPath } from "@/lib/roles";
+// src/pages/Login.jsx
+import React, { useState, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { LogIn, Mail, Lock } from 'lucide-react';
+import AuthLayout from '@/components/AuthLayout';
+import { supabase } from '@/api/supabaseClient';
+import { useAuth } from '@/lib/AuthContext';
+import { getEffectiveRole, roleDashboardPath } from '@/lib/roles';
+import { safeReturnTo } from '@/lib/authReturnTo';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 export default function Login() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const navigate = useNavigate();
+  const { user, isAuthenticated, isLoadingAuth } = useAuth();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const returnTo = safeReturnTo();
+  const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
+
+  // إذا كان المستخدم مسجل دخول مسبقاً
+  useEffect(() => {
+    if (!isLoadingAuth && isAuthenticated && user) {
+      const role = getEffectiveRole(user);
+      const returnTo = safeReturnTo();
+      const target = returnTo && returnTo !== '/' ? returnTo : roleDashboardPath(role);
+      navigate(target, { replace: true });
+    }
+  }, [isAuthenticated, isLoadingAuth, user, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError("");
     setLoading(true);
+    setError('');
+    setInfo('');
+
     try {
-      await base44.auth.loginViaEmailPassword(email, password);
-      let dest = returnTo;
-      if (dest === "/") {
-        try {
-          const me = await base44.auth.me();
-          dest = roleDashboardPath(getEffectiveRole(me));
-        } catch {
-          dest = "/";
-        }
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+
+      if (signInError) throw signInError;
+
+      if (!data.user) {
+        throw new Error('فشل تسجيل الدخول — لا توجد بيانات مستخدم');
       }
-      window.location.href = dest;
+
+      // التحقق من حالة الحساب
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('account_type, status')
+        .eq('id', data.user.id)
+        .single();
+
+      if (profile?.status === 'suspended') {
+        await supabase.auth.signOut();
+        throw new Error('تم تعليق حسابك. يرجى التواصل مع الإدارة.');
+      }
+
+      // إعادة التوجيه
+      const role = profile?.account_type || 'buyer';
+      const returnTo = safeReturnTo();
+      const target = returnTo && returnTo !== '/' ? returnTo : roleDashboardPath(role);
+      navigate(target, { replace: true });
     } catch (err) {
-      setError(err.message || "البريد الإلكتروني أو كلمة المرور غير صحيحة");
+      console.error('Login error:', err);
+      const msg = err.message || 'فشل تسجيل الدخول';
+      if (msg.includes('Invalid login credentials')) {
+        setError('البريد الإلكتروني أو كلمة المرور غير صحيحة');
+      } else if (msg.includes('Email not confirmed')) {
+        setError('يرجى تأكيد بريدك الإلكتروني أولاً');
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  const handleGoogle = () => {
-    base44.auth.loginWithProvider("google", returnTo);
+  const handleForgotPassword = async () => {
+    if (!email) {
+      setError('أدخل بريدك الإلكتروني أولاً');
+      return;
+    }
+    setError('');
+    setInfo('');
+    try {
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      if (resetError) throw resetError;
+      setInfo('تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك');
+    } catch (err) {
+      setError(err.message || 'فشل إرسال الرابط');
+    }
   };
 
   return (
     <AuthLayout
       icon={LogIn}
       title="تسجيل الدخول"
-      subtitle="أهلاً بعودتك إلى سوق الوسيط"
+      subtitle="مرحباً بك في سوق الوسيط"
       footer={
         <>
-          ليس لديك حساب؟{" "}
-          <Link
-            to={"/register" + (returnTo !== "/" ? "?returnTo=" + encodeURIComponent(returnTo) : "")}
-            className="text-gold font-semibold hover:underline"
-          >
-            أنشئ حساباً
+          ليس لديك حساب؟{' '}
+          <Link to="/register" className="text-gold hover:underline font-medium">
+            أنشئ حساباً جديداً
           </Link>
         </>
       }
     >
-      <Button
-        variant="outline"
-        className="w-full h-12 text-sm font-medium mb-6"
-        onClick={handleGoogle}
-      >
-        <GoogleIcon className="w-5 h-5 ml-2" />
-        المتابعة عبر Google
-      </Button>
+      <form onSubmit={handleSubmit} className="space-y-5">
+        {error && (
+          <div className="bg-destructive/10 text-destructive text-sm p-3 rounded-lg border border-destructive/20">
+            {error}
+          </div>
+        )}
+        {info && (
+          <div className="bg-green-50 text-green-700 text-sm p-3 rounded-lg border border-green-200">
+            {info}
+          </div>
+        )}
 
-      <div className="relative mb-6">
-        <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-border" />
-        </div>
-        <div className="relative flex justify-center text-xs">
-          <span className="bg-card px-3 text-muted-foreground">أو</span>
-        </div>
-      </div>
-
-      {error && (
-        <div className="mb-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm">{error}</div>
-      )}
-
-      <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">
           <Label htmlFor="email">البريد الإلكتروني</Label>
           <div className="relative">
-            <Mail className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+            <Mail className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
             <Input
               id="email"
               type="email"
-              autoComplete="email"
-              autoFocus
-              placeholder="you@example.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="pr-10 h-12"
+              placeholder="example@email.com"
               required
+              autoComplete="email"
+              className="pr-10"
+              dir="ltr"
             />
           </div>
         </div>
+
         <div className="space-y-2">
-          <div className="flex items-center justify-between">
+          <div className="flex justify-between items-center">
             <Label htmlFor="password">كلمة المرور</Label>
-            <Link to="/forgot-password" className="text-xs text-gold hover:underline">
+            <button
+              type="button"
+              onClick={handleForgotPassword}
+              className="text-xs text-gold hover:underline"
+            >
               نسيت كلمة المرور؟
-            </Link>
+            </button>
           </div>
           <div className="relative">
-            <Lock className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" aria-hidden="true" />
+            <Lock className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
             <Input
               id="password"
               type="password"
-              autoComplete="current-password"
-              placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="pr-10 h-12"
+              placeholder="••••••••"
               required
+              autoComplete="current-password"
+              className="pr-10"
+              dir="ltr"
             />
           </div>
         </div>
-        <Button type="submit" className="w-full h-12 font-semibold bg-gold text-navy hover:bg-gold/90" disabled={loading}>
-          {loading ? (
-            <>
-              <Loader2 className="w-4 h-4 ml-2 animate-spin" />
-              جارٍ الدخول...
-            </>
-          ) : (
-            "تسجيل الدخول"
-          )}
+
+        <Button
+          type="submit"
+          disabled={loading}
+          className="w-full bg-navy text-white hover:bg-navy/90 h-11 text-base font-semibold"
+        >
+          {loading ? 'جارٍ الدخول...' : 'دخول'}
         </Button>
       </form>
     </AuthLayout>

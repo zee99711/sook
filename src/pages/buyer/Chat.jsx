@@ -1,193 +1,192 @@
-import React, { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import { base44 } from "@/api/base44Client";
-import { useAuth } from "@/lib/AuthContext";
-import { useBuyerData, merchantById } from "@/hooks/useBuyerData";
-import { notifyChat } from "@/lib/notify";
-import EmptyState from "@/components/merchant/EmptyState";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { MessageSquare, Send, Paperclip, Loader2, ArrowRight, CheckCheck, FileText } from "lucide-react";
-import { toast } from "@/components/ui/use-toast";
+// src/pages/buyer/Chat.jsx
+import React, { useEffect, useState, useRef } from 'react';
+import { MessageSquare, Send, Search } from 'lucide-react';
+import PageHeader from '@/components/PageHeader';
+import { supabase } from '@/api/supabaseClient';
+import { chatsAPI } from '@/api/entities';
+import { useAuth } from '@/lib/AuthContext';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 
 export default function BuyerChat() {
   const { user } = useAuth();
-  const { merchants } = useBuyerData();
-  const [params, setParams] = useSearchParams();
-  const merchantParam = params.get("merchant");
   const [chats, setChats] = useState([]);
   const [activeChat, setActiveChat] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [text, setText] = useState("");
-  const [uploading, setUploading] = useState(false);
+  const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
-  const bottomRef = useRef(null);
+  const [sending, setSending] = useState(false);
+  const messagesEndRef = useRef(null);
 
-  const loadChats = async () => {
-    const all = await base44.entities.Chat.list("-updated_at", 50);
-    const mine = (all || []).filter((c) => c.participants?.includes(user.id));
-    setChats(mine);
-    return mine;
-  };
-
+  // تحميل المحادثات
   useEffect(() => {
-    if (!user) return;
-    (async () => {
-      setLoading(true);
-      const mine = await loadChats();
-      if (merchantParam) {
-        let chat = mine.find((c) => c.participants?.includes(merchantParam));
-        if (!chat) {
-          chat = await base44.entities.Chat.create({
-            participants: [user.id, merchantParam],
-            last_message: "",
-            updated_at: new Date().toISOString(),
-          });
-          await loadChats();
-        }
-        setActiveChat(chat.id);
-        setParams({}, { replace: true });
-      } else if (mine[0]) {
-        setActiveChat(mine[0].id);
-      }
-      setLoading(false);
-    })();
-  }, [user, merchantParam]);
+    if (!user?.id) return;
+    chatsAPI
+      .listForUser(user.id)
+      .then(setChats)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [user?.id]);
 
-  // تحميل الرسائل + الاشتراك اللحظي + تعليم المُستلمة كمقروءة
+  // تحميل الرسائل
   useEffect(() => {
-    if (!activeChat) { setMessages([]); return; }
-    base44.entities.Message.filter({ chat_id: activeChat }, "created_date", 200).then(async (r) => {
-      setMessages(r || []);
-      // تعليم رسائل الطرف الآخر كمقروءة
-      const unread = (r || []).filter((m) => m.sender_id !== user.id && !m.read);
-      for (const m of unread) {
-        try { await base44.entities.Message.update(m.id, { read: true }); } catch {}
-      }
-      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
-    });
-    const unsub = base44.entities.Message.subscribe((event) => {
-      if (event?.data?.chat_id === activeChat) {
-        setMessages((prev) => {
-          if (prev.some((p) => p.id === event.data.id)) return prev;
-          return [...prev, event.data];
-        });
-        if (event.data.sender_id !== user.id) {
-          base44.entities.Message.update(event.data.id, { read: true }).catch(() => {});
+    if (!activeChat?.id) return;
+    chatsAPI.messages(activeChat.id).then(setMessages);
+
+    const channel = supabase
+      .channel(`chat-${activeChat.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `chat_id=eq.${activeChat.id}`,
+        },
+        (payload) => {
+          setMessages((prev) => [...prev, payload.new]);
         }
-        setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
-      }
-    });
-    return unsub;
-  }, [activeChat]);
+      )
+      .subscribe();
 
-  const otherId = (chat) => chat?.participants?.find((p) => p !== user.id);
-  const otherName = (chat) => merchantById(merchants, otherId(chat))?.business_name || "تاجر";
+    return () => supabase.removeChannel(channel);
+  }, [activeChat?.id]);
 
-  const send = async () => {
-    if (!text.trim()) return;
-    if (!activeChat) return;
-    const body = text.trim();
-    setText("");
+  // التمرير التلقائي
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const sendMessage = async () => {
+    if (!newMessage.trim() || !activeChat?.id || !user?.id) return;
+    setSending(true);
     try {
-      const msg = await base44.entities.Message.create({ chat_id: activeChat, sender_id: user.id, body, attachments: [], read: false });
-      setMessages((prev) => [...prev, msg]);
-      await base44.entities.Chat.update(activeChat, { last_message: body, updated_at: new Date().toISOString() });
-      await notifyChat(otherId(chats.find((c) => c.id === activeChat)), user?.display_name || user?.full_name || "مشتري");
-      loadChats();
+      await chatsAPI.sendMessage({
+        chat_id: activeChat.id,
+        sender_id: user.id,
+        body: newMessage.trim(),
+      });
+      setNewMessage('');
+      // تحديث last_message
+      await supabase
+        .from('chats')
+        .update({
+          last_message: newMessage.trim(),
+          last_message_at: new Date().toISOString(),
+        })
+        .eq('id', activeChat.id);
     } catch (err) {
-      toast({ title: err.message || "فشل الإرسال", variant: "destructive" });
-    }
-  };
-
-  const onFile = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    try {
-      const { file_url } = await base44.integrations.Core.UploadPublicFile({ file });
-      const isImg = file.type.startsWith("image/");
-      const msg = await base44.entities.Message.create({ chat_id: activeChat, sender_id: user.id, body: isImg ? "" : file.name, attachments: [file_url], read: false });
-      setMessages((prev) => [...prev, msg]);
-      await base44.entities.Chat.update(activeChat, { last_message: "مرفق", updated_at: new Date().toISOString() });
-      await notifyChat(otherId(chats.find((c) => c.id === activeChat)), user?.display_name || user?.full_name || "مشتري");
-      loadChats();
-    } catch (err) {
-      toast({ title: err.message || "فشل الرفع", variant: "destructive" });
+      console.error(err);
     } finally {
-      setUploading(false);
+      setSending(false);
     }
   };
-
-  if (loading) return <EmptyState loading />;
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-navy mb-6 flex items-center gap-2"><MessageSquare className="w-6 h-6 text-gold" /> المحادثات</h1>
-      <div className="grid lg:grid-cols-[300px_1fr] gap-4 h-[calc(100vh-220px)] min-h-[480px]">
-        <div className="bg-card rounded-2xl border border-border overflow-hidden flex flex-col">
-          <div className="overflow-y-auto flex-1">
-            {chats.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center p-6">لا توجد محادثات بعد</p>
+      <PageHeader icon={MessageSquare} title="المحادثات" subtitle="تواصل مع التجار" />
+
+      <div className="bg-card rounded-2xl border border-border overflow-hidden" style={{ height: '600px' }}>
+        <div className="grid grid-cols-3 h-full">
+          {/* قائمة المحادثات */}
+          <div className="col-span-1 border-l border-border overflow-y-auto">
+            <div className="p-3 border-b border-border">
+              <div className="relative">
+                <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input placeholder="بحث..." className="pr-10" />
+              </div>
+            </div>
+
+            {loading ? (
+              <p className="p-4 text-sm text-muted-foreground text-center">جارٍ التحميل...</p>
+            ) : chats.length === 0 ? (
+              <p className="p-4 text-sm text-muted-foreground text-center">
+                لا توجد محادثات بعد
+              </p>
             ) : (
               chats.map((c) => (
-                <button key={c.id} onClick={() => setActiveChat(c.id)} className={`w-full text-right p-3 border-b border-border flex items-center gap-3 transition ${activeChat === c.id ? "bg-gold/10" : "hover:bg-secondary/50"}`}>
-                  <div className="w-10 h-10 rounded-xl bg-navy text-white flex items-center justify-center font-bold shrink-0">{otherName(c).charAt(0)}</div>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-navy text-sm truncate">{otherName(c)}</p>
-                    <p className="text-xs text-muted-foreground truncate">{c.last_message || "ابدأ المحادثة"}</p>
-                  </div>
+                <button
+                  key={c.id}
+                  onClick={() => setActiveChat(c)}
+                  className={`w-full p-3 text-right border-b border-border hover:bg-secondary/50 transition-colors ${
+                    activeChat?.id === c.id ? 'bg-gold/5' : ''
+                  }`}
+                >
+                  <p className="text-sm font-medium text-navy truncate">
+                    محادثة #{c.id.slice(0, 6)}
+                  </p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {c.last_message || 'لا توجد رسائل'}
+                  </p>
                 </button>
               ))
             )}
           </div>
-        </div>
 
-        <div className="bg-card rounded-2xl border border-border overflow-hidden flex flex-col">
-          {activeChat ? (
-            <>
-              <div className="px-4 py-3 border-b border-border font-semibold text-navy flex items-center gap-2">
-                <ArrowRight className="w-4 h-4 text-muted-foreground lg:hidden" />
-                {otherName(chats.find((c) => c.id === activeChat))}
-              </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-secondary/20">
-                {messages.length === 0 && <p className="text-sm text-muted-foreground text-center mt-8">اكتب أول رسالة</p>}
-                {messages.map((msg) => {
-                  const mine = msg.sender_id === user.id;
-                  return (
-                    <div key={msg.id} className={`flex ${mine ? "justify-start" : "justify-end"}`}>
-                      <div className={`max-w-[75%] rounded-2xl px-4 py-2 ${mine ? "bg-gold text-navy" : "bg-white border border-border"}`}>
-                        {msg.body && <p className="text-sm whitespace-pre-line">{msg.body}</p>}
-                        {msg.attachments?.map((a, i) => (
-                          <a key={i} href={a} target="_blank" rel="noreferrer" className="block mt-1">
-                            {a.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
-                              <img src={a} alt="مرفق" className="rounded-lg max-h-40" />
-                            ) : (
-                              <span className="inline-flex items-center gap-2 text-xs underline"><FileText className="w-4 h-4" /> ملف مرفق</span>
-                            )}
-                          </a>
-                        ))}
-                        {mine && <span className="flex items-center gap-1 justify-end mt-1 text-[10px] text-navy/60"><CheckCheck className="w-3 h-3" /> {msg.read ? "مقروءة" : "مُرسلة"}</span>}
+          {/* نافذة المحادثة */}
+          <div className="col-span-2 flex flex-col h-full">
+            {activeChat ? (
+              <>
+                <div className="p-4 border-b border-border">
+                  <p className="font-bold text-navy">
+                    محادثة #{activeChat.id.slice(0, 6)}
+                  </p>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                  {messages.map((m) => (
+                    <div
+                      key={m.id}
+                      className={`flex ${
+                        m.sender_id === user?.id ? 'justify-start' : 'justify-end'
+                      }`}
+                    >
+                      <div
+                        className={`max-w-xs px-4 py-2 rounded-2xl ${
+                          m.sender_id === user?.id
+                            ? 'bg-navy text-white'
+                            : 'bg-secondary text-navy'
+                        }`}
+                      >
+                        <p className="text-sm">{m.body}</p>
+                        <p className="text-[10px] opacity-70 mt-1">
+                          {new Date(m.created_at).toLocaleTimeString('ar-EG', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </p>
                       </div>
                     </div>
-                  );
-                })}
-                <div ref={bottomRef} />
+                  ))}
+                  <div ref={messagesEndRef} />
+                </div>
+
+                <div className="p-3 border-t border-border flex gap-2">
+                  <Input
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+                    placeholder="اكتب رسالتك..."
+                    className="flex-1"
+                  />
+                  <Button
+                    onClick={sendMessage}
+                    disabled={sending || !newMessage.trim()}
+                    className="bg-navy text-white"
+                  >
+                    <Send className="w-4 h-4" />
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <div className="flex-1 flex items-center justify-center text-center">
+                <div>
+                  <MessageSquare className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+                  <p className="text-muted-foreground">اختر محادثة للبدء</p>
+                </div>
               </div>
-              <div className="p-3 border-t border-border flex items-center gap-2">
-                <label className="cursor-pointer p-2 rounded-lg hover:bg-secondary text-navy">
-                  {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Paperclip className="w-5 h-5" />}
-                  <input type="file" accept="image/*,application/pdf" className="hidden" onChange={onFile} />
-                </label>
-                <Input value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} placeholder="اكتب رسالة..." className="h-11" />
-                <Button onClick={send} className="h-11 w-11 p-0 bg-gold text-navy hover:bg-gold/90"><Send className="w-5 h-5" /></Button>
-              </div>
-            </>
-          ) : (
-            <div className="flex-1 flex items-center justify-center">
-              <EmptyState icon={MessageSquare} title="اختر محادثة" subtitle="ابدأ بالضغط على محادثة من القائمة أو راسل تاجر من صفحة التجار" />
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
     </div>

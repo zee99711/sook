@@ -1,254 +1,273 @@
-import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { base44 } from "@/api/base44Client";
-import { Button } from "@/components/ui/button";
-import Reveal from "@/components/public/Reveal";
+// src/pages/Home.jsx
+import React from 'react';
+import { Link } from 'react-router-dom';
 import {
-  ShieldCheck, Store, ShoppingBag, FileText, MessagesSquare, Star, ArrowLeft,
-  Package, TrendingUp, Users, BadgeCheck, Search, ClipboardList, Truck, CheckCircle2,
-} from "lucide-react";
-
-const categories = [
-  { icon: "🚬", name: "دخان وتبغ" },
-  { icon: "🥫", name: "مواد غذائية" },
-  { icon: "🥤", name: "مشروبات" },
-  { icon: "🧴", name: "منظفات" },
-  { icon: "🌾", name: "حبوب وأعلاف" },
-  { icon: "🧀", name: "ألبان وأجبان" },
-  { icon: "🧻", name: "ورقيات وتغليف" },
-  { icon: "⚡", name: "كهربائيات" },
-];
-
-const features = [
-  { icon: BadgeCheck, title: "تجار موثّقون", desc: "كل تاجر يمرّ بمراجعة السجل التجاري قبل التفعيل، لضمان سوق جاد وآمن." },
-  { icon: FileText, title: "فواتير رسمية", desc: "توليد فواتير PDF تلقائياً مع رمز QR للتحقق، وحساب العمولات والصافي بدقة." },
-  { icon: MessagesSquare, title: "محادثات مباشرة", desc: "تواصل بين التاجر والمشتري داخل المنصة مع دعم المرفقات والإشعارات." },
-  { icon: ShieldCheck, title: "أمان وصلاحيات", desc: "أدوار منفصلة: مدير، تاجر، مشتري — كلٌّ يرى ما يخصّه فقط." },
-];
-
-const merchantSteps = [
-  { icon: ClipboardList, title: "سجّل وارفع سجلك", desc: "أنشئ حساب تاجر وارفع السجل التجاري للمراجعة." },
-  { icon: Package, title: "أضف منتجاتك", desc: "أدر المستودع والأسعار وحدد الحد الأدنى للطلب." },
-  { icon: CheckCircle2, title: "استلم الطلبات", desc: "أكّد، جهّز، شحن، وأرسل الفاتورة تلقائياً للمشتري." },
-];
-
-const buyerSteps = [
-  { icon: Search, title: "تصفّح وابحث", desc: "اكتشف المنتجات والتجار والأسعار بسهولة." },
-  { icon: ShoppingBag, title: "أضف للسلة", desc: "اختر الكميات وحدد طريقة الدفع المناسبة." },
-  { icon: Truck, title: "تابع التوصيل", desc: "استلم إشعارات الحالة وقيّم التاجر بعد التسليم." },
-];
-
-const testimonials = [
-  { name: "أبو خالد", role: "تاجر مواد غذائية", text: "سوق الوسيط نقلة نوعية لعملي. الفواتير التلقائية والعمولات الواضحة وفّرت عليّ ساعات من العمل.", rating: 5 },
-  { name: "محمد العلي", role: "صاحب محل بقالة", text: "أجد كل ما أحتاجه من تجار موثّقين بأسعار جملة عادلة، والمحادثة المباشرة تسهّل التفاوض.", rating: 5 },
-  { name: "سامر الحسين", role: "موزّع مشروبات", text: "التصميم بسيط وواضح، وأبي وأبي يستخدمه بسهولة. نظام التقييمات يبني الثقة بيننا.", rating: 4 },
-];
+  ShoppingBag,
+  Store,
+  Shield,
+  FileText,
+  MessageSquare,
+  TrendingUp,
+  ArrowLeft,
+  CheckCircle2,
+} from 'lucide-react';
+import { useAuth } from '@/lib/AuthContext';
+import { getEffectiveRole, roleDashboardPath } from '@/lib/roles';
 
 export default function Home() {
-  const [stats, setStats] = useState({ merchants: 0, products: 0, invoices: 0, loaded: false });
+  const { user, isAuthenticated } = useAuth();
+  const dashboardPath = isAuthenticated
+    ? roleDashboardPath(getEffectiveRole(user))
+    : '/register';
 
-  useEffect(() => {
-    Promise.all([
-      base44.entities.MerchantProfile.list(),
-      base44.entities.Product.list(),
-      base44.entities.Invoice.list(),
-    ])
-      .then(([m, p, i]) => setStats({ merchants: (m || []).length, products: (p || []).length, invoices: (i || []).length, loaded: true }))
-      .catch(() => setStats({ merchants: 0, products: 0, invoices: 0, loaded: true }));
-  }, []);
+  const features = [
+    {
+      icon: Store,
+      title: 'تجار موثّقون',
+      desc: 'نتحقق يدوياً من كل سجل تجاري لضمان بيئة آمنة وموثوقة.',
+    },
+    {
+      icon: FileText,
+      title: 'فواتير إلكترونية',
+      desc: 'توليد فوري للفواتير بصيغة PDF مع رمز QR للتحقق.',
+    },
+    {
+      icon: MessageSquare,
+      title: 'محادثات مباشرة',
+      desc: 'تواصل فوري بين التاجر والمشتري داخل المنصة.',
+    },
+    {
+      icon: TrendingUp,
+      title: 'تقارير متقدمة',
+      desc: 'إحصائيات شاملة للمبيعات والمخزون والأداء.',
+    },
+    {
+      icon: Shield,
+      title: 'دفع آمن',
+      desc: 'طرق دفع متعددة: USDT، شام كاش، سيريتل كاش، والدفع عند التسليم.',
+    },
+    {
+      icon: ShoppingBag,
+      title: 'تصفّح ذكي',
+      desc: 'فلترة متقدمة بالبحث والفئة والمنطقة والسعر.',
+    },
+  ];
+
+  const steps = [
+    { num: 1, title: 'أنشئ حسابك', desc: 'سجل كتاجر أو مشتري في دقيقة' },
+    { num: 2, title: 'وثّق سجلك', desc: 'ارفع سجلك التجاري للتجار' },
+    { num: 3, title: 'تصفّح أو اعرض', desc: 'ابحث عن منتجات أو اعرض بضائعك' },
+    { num: 4, title: 'أتمم الصفقة', desc: 'دفع آمن وتوصيل مضمون' },
+  ];
 
   return (
     <div>
-      {/* البطل */}
-      <section className="bg-navy text-white relative overflow-hidden">
-        <div className="absolute inset-0 opacity-10" style={{ backgroundImage: "radial-gradient(circle at 85% 15%, hsl(var(--gold)) 0, transparent 45%)" }} />
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-20 sm:py-28 relative">
-          <div className="max-w-2xl">
-            <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gold/15 text-gold text-sm font-medium mb-5">
-              <ShieldCheck className="w-4 h-4" />
-              منصة تجارة بين الشركات (B2B)
+      {/* Hero */}
+      <section className="bg-gradient-to-br from-navy via-navy to-[#0f1a30] text-white py-20 md:py-28">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 text-center">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-gold/20 border border-gold/30 mb-6">
+            <span className="w-2 h-2 rounded-full bg-gold animate-pulse"></span>
+            <span className="text-sm text-gold font-medium">
+              منصة B2B العربية الأولى
             </span>
-            <h1 className="text-4xl sm:text-5xl font-extrabold leading-tight mb-5">
-              سوق الوسيط — حيث يلتقي التجار بالمشترين
-            </h1>
-            <p className="text-lg sm:text-xl text-white/75 mb-8 leading-relaxed">
-              منصة عربية متكاملة تربط التجار أصحاب السجل التجاري الموثّق بالمشترين، مع إدارة كاملة للمنتجات والأسعار والفواتير والمحادثات في مكان واحد آمن ورسمي.
+          </div>
+
+          <h1 className="text-4xl md:text-6xl font-bold mb-6 leading-tight">
+            سوق الوسيط
+            <br />
+            <span className="text-gold">حيث تلتقي التجارة بالثقة</span>
+          </h1>
+
+          <p className="text-lg md:text-xl text-white/80 max-w-3xl mx-auto mb-10 leading-relaxed">
+            منصة عربية متكاملة تربط التجار الموثّقين بالمشترين، مع إدارة كاملة
+            للمنتجات والفواتير والمحادثات في بيئة آمنة ورسمية.
+          </p>
+
+          <div className="flex flex-wrap gap-4 justify-center">
+            <Link
+              to={dashboardPath}
+              className="inline-flex items-center gap-2 px-8 py-4 bg-gold text-navy rounded-xl font-bold text-lg hover:bg-gold/90 transition-colors"
+            >
+              {isAuthenticated ? 'لوحة التحكم' : 'ابدأ الآن'}
+              <ArrowLeft className="w-5 h-5" />
+            </Link>
+            <Link
+              to="/about"
+              className="inline-flex items-center gap-2 px-8 py-4 bg-white/10 border border-white/20 rounded-xl font-bold text-lg hover:bg-white/20 transition-colors"
+            >
+              تعرف علينا
+            </Link>
+          </div>
+
+          {/* Quick stats */}
+          <div className="grid grid-cols-3 gap-4 max-w-2xl mx-auto mt-14">
+            <div>
+              <p className="text-3xl font-bold text-gold">+100</p>
+              <p className="text-sm text-white/70">تاجر مسجل</p>
+            </div>
+            <div>
+              <p className="text-3xl font-bold text-gold">+1000</p>
+              <p className="text-sm text-white/70">منتج متاح</p>
+            </div>
+            <div>
+              <p className="text-3xl font-bold text-gold">+500</p>
+              <p className="text-sm text-white/70">صفقة ناجحة</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Features */}
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 py-16 md:py-20">
+        <div className="text-center mb-12">
+          <h2 className="text-3xl md:text-4xl font-bold text-navy mb-3">
+            لماذا سوق الوسيط؟
+          </h2>
+          <p className="text-muted-foreground max-w-2xl mx-auto">
+            نجمع لك أفضل الميزات في منصة واحدة لتسهيل تجارتك
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {features.map((f) => {
+            const Icon = f.icon;
+            return (
+              <div
+                key={f.title}
+                className="bg-card rounded-2xl border border-border p-6 hover:shadow-lg hover:border-gold/50 transition-all"
+              >
+                <div className="w-12 h-12 rounded-xl bg-navy text-white flex items-center justify-center mb-4">
+                  <Icon className="w-6 h-6" />
+                </div>
+                <h3 className="font-bold text-navy mb-2 text-lg">{f.title}</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  {f.desc}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* How it works */}
+      <section className="bg-secondary/40 py-16 md:py-20">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl md:text-4xl font-bold text-navy mb-3">
+              كيف يعمل الموقع؟
+            </h2>
+            <p className="text-muted-foreground">
+              4 خطوات بسيطة للبدء
             </p>
-            <div className="flex flex-wrap gap-3">
-              <Button asChild size="lg" className="bg-gold text-navy hover:bg-gold/90 h-12 text-base px-7">
-                <Link to="/register">ابدأ كتاجر</Link>
-              </Button>
-              <Button asChild size="lg" variant="outline" className="h-12 text-base px-7 border-white/30 text-white hover:bg-white/10">
-                <Link to="/login">تصفّح كزائر <ArrowLeft className="w-4 h-4 mr-2" /></Link>
-              </Button>
-            </div>
           </div>
-        </div>
-      </section>
 
-      {/* شريط الفئات */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 py-12">
-        <Reveal className="text-center mb-8">
-          <h2 className="text-2xl sm:text-3xl font-bold text-navy mb-2">تصفّح حسب الفئة</h2>
-          <p className="text-muted-foreground">أكثر فئات التجزئة والجملة طلباً في المنصة.</p>
-        </Reveal>
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
-          {categories.map((c, i) => (
-            <Reveal key={c.name} delay={i * 0.04}>
-              <div className="bg-card rounded-2xl border border-border p-4 text-center hover:border-gold/50 hover:shadow-md transition-all cursor-pointer">
-                <div className="text-3xl mb-2">{c.icon}</div>
-                <p className="text-sm font-medium text-navy">{c.name}</p>
-              </div>
-            </Reveal>
-          ))}
-        </div>
-      </section>
-
-      {/* لماذا سوق الوسيط */}
-      <section className="bg-secondary/50 border-y border-border">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
-          <Reveal className="text-center mb-12">
-            <h2 className="text-3xl font-bold text-navy mb-3">لماذا سوق الوسيط؟</h2>
-            <p className="text-muted-foreground">كل ما تحتاجه للتجارة بين الشركات في منصة واحدة رسمية وآمنة.</p>
-          </Reveal>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {features.map((f, i) => {
-              const Icon = f.icon;
-              return (
-                <Reveal key={f.title} delay={i * 0.08}>
-                  <div className="bg-card rounded-2xl border border-border p-6 h-full hover:border-gold/50 hover:shadow-md transition-all">
-                    <div className="w-12 h-12 rounded-xl bg-navy text-gold flex items-center justify-center mb-4">
-                      <Icon className="w-6 h-6" />
-                    </div>
-                    <h3 className="font-bold text-navy text-lg mb-2">{f.title}</h3>
-                    <p className="text-muted-foreground text-sm leading-relaxed">{f.desc}</p>
-                  </div>
-                </Reveal>
-              );
-            })}
-          </div>
-        </div>
-      </section>
-
-      {/* كيف يعمل الموقع */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
-        <Reveal className="text-center mb-12">
-          <h2 className="text-3xl font-bold text-navy mb-3">كيف يعمل الموقع؟</h2>
-          <p className="text-muted-foreground">ثلاث خطوات بسيطة لكل من التاجر والمشتري.</p>
-        </Reveal>
-        <div className="grid lg:grid-cols-2 gap-8">
-          <Reveal>
-            <div className="bg-card rounded-2xl border border-border p-6 h-full">
-              <h3 className="font-bold text-navy text-lg mb-6 flex items-center gap-2"><Store className="w-5 h-5 text-gold" /> للتاجر</h3>
-              <div className="space-y-5">
-                {merchantSteps.map((s, i) => {
-                  const Icon = s.icon;
-                  return (
-                    <div key={s.title} className="flex gap-4">
-                      <div className="shrink-0 w-11 h-11 rounded-xl bg-navy text-gold flex items-center justify-center relative">
-                        <Icon className="w-5 h-5" />
-                        <span className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-gold text-navy text-xs font-bold flex items-center justify-center">{i + 1}</span>
-                      </div>
-                      <div>
-                        <p className="font-semibold text-navy">{s.title}</p>
-                        <p className="text-sm text-muted-foreground">{s.desc}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </Reveal>
-          <Reveal delay={0.1}>
-            <div className="bg-card rounded-2xl border border-border p-6 h-full">
-              <h3 className="font-bold text-navy text-lg mb-6 flex items-center gap-2"><ShoppingBag className="w-5 h-5 text-gold" /> للمشتري</h3>
-              <div className="space-y-5">
-                {buyerSteps.map((s, i) => {
-                  const Icon = s.icon;
-                  return (
-                    <div key={s.title} className="flex gap-4">
-                      <div className="shrink-0 w-11 h-11 rounded-xl bg-navy text-gold flex items-center justify-center relative">
-                        <Icon className="w-5 h-5" />
-                        <span className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-gold text-navy text-xs font-bold flex items-center justify-center">{i + 1}</span>
-                      </div>
-                      <div>
-                        <p className="font-semibold text-navy">{s.title}</p>
-                        <p className="text-sm text-muted-foreground">{s.desc}</p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </Reveal>
-        </div>
-      </section>
-
-      {/* إحصائيات حية */}
-      <section className="bg-navy text-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-14">
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-6 text-center">
-            <Stat icon={Store} value={stats.loaded ? stats.merchants : null} label="تاجر موثّق" />
-            <Stat icon={Package} value={stats.loaded ? stats.products : null} label="منتج معروض" />
-            <Stat icon={FileText} value={stats.loaded ? stats.invoices : null} label="فاتورة صادرة" />
-          </div>
-        </div>
-      </section>
-
-      {/* شهادات */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 py-16 sm:py-20">
-        <Reveal className="text-center mb-12">
-          <h2 className="text-3xl font-bold text-navy mb-3">ماذا يقول تجارنا؟</h2>
-          <p className="text-muted-foreground">آراء حقيقية من مستخدمي سوق الوسيط.</p>
-        </Reveal>
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {testimonials.map((t, i) => (
-            <Reveal key={t.name} delay={i * 0.08}>
-              <div className="bg-card rounded-2xl border border-border p-6 h-full flex flex-col">
-                <div className="flex gap-1 mb-3">
-                  {Array.from({ length: 5 }).map((_, s) => (
-                    <Star key={s} className={`w-4 h-4 ${s < t.rating ? "text-gold fill-gold" : "text-muted-foreground/30"}`} />
-                  ))}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {steps.map((s, i) => (
+              <div key={s.num} className="relative text-center">
+                <div className="w-16 h-16 rounded-2xl bg-gold text-navy flex items-center justify-center font-bold text-2xl mx-auto mb-4 shadow-lg">
+                  {s.num}
                 </div>
-                <p className="text-muted-foreground leading-relaxed flex-1">«{t.text}»</p>
-                <div className="flex items-center gap-3 mt-5 pt-4 border-t border-border">
-                  <div className="w-11 h-11 rounded-full bg-navy text-gold flex items-center justify-center font-bold">{t.name.charAt(0)}</div>
-                  <div>
-                    <p className="font-semibold text-navy">{t.name}</p>
-                    <p className="text-xs text-muted-foreground">{t.role}</p>
-                  </div>
-                </div>
+                <h3 className="font-bold text-navy mb-2">{s.title}</h3>
+                <p className="text-sm text-muted-foreground">{s.desc}</p>
+
+                {i < steps.length - 1 && (
+                  <ArrowLeft className="hidden lg:block absolute top-8 -left-3 w-6 h-6 text-gold" />
+                )}
               </div>
-            </Reveal>
-          ))}
+            ))}
+          </div>
         </div>
       </section>
 
-      {/* دعوة أخيرة */}
-      <section className="bg-gradient-to-l from-navy to-[#14213d] text-white">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-16 text-center">
-          <Reveal>
-            <h2 className="text-3xl font-bold mb-4">انضم إلى سوق الوسيط اليوم</h2>
-            <p className="text-white/75 mb-8">سجّل كتاجر أو مشتري خلال دقائق وابدأ التجارة في بيئة رسمية وآمنة.</p>
-            <div className="flex flex-wrap gap-3 justify-center">
-              <Button asChild size="lg" className="bg-gold text-navy hover:bg-gold/90 h-12 text-base px-7"><Link to="/register">إنشاء حساب</Link></Button>
-              <Button asChild size="lg" variant="outline" className="h-12 text-base px-7 border-white/30 text-white hover:bg-white/10"><Link to="/login">تسجيل الدخول</Link></Button>
+      {/* For merchants / buyers */}
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 py-16 md:py-20">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Merchants */}
+          <div className="bg-navy text-white rounded-3xl p-8 md:p-10">
+            <div className="w-14 h-14 rounded-2xl bg-gold flex items-center justify-center mb-5">
+              <Store className="w-7 h-7 text-navy" />
             </div>
-          </Reveal>
+            <h2 className="text-2xl md:text-3xl font-bold mb-4">
+              أنت تاجر؟
+            </h2>
+            <p className="text-white/80 mb-6 leading-relaxed">
+              اعرض بضائعك لآلاف المشترين، وتوسّع في تجارتك مع أدوات إدارة متقدمة.
+            </p>
+            <ul className="space-y-3 mb-8">
+              {[
+                'نشر غير محدود للمنتجات',
+                'إدارة كاملة للمستودع والأسعار',
+                'تقارير مبيعات تفصيلية',
+                'استقبال الطلبات وإدارتها',
+              ].map((item) => (
+                <li key={item} className="flex items-center gap-2 text-white/90">
+                  <CheckCircle2 className="w-5 h-5 text-gold shrink-0" />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+            <Link
+              to="/register"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-gold text-navy rounded-xl font-bold hover:bg-gold/90 transition-colors"
+            >
+              سجّل كتاجر
+              <ArrowLeft className="w-4 h-4" />
+            </Link>
+          </div>
+
+          {/* Buyers */}
+          <div className="bg-card border-2 border-gold/30 rounded-3xl p-8 md:p-10">
+            <div className="w-14 h-14 rounded-2xl bg-navy flex items-center justify-center mb-5">
+              <ShoppingBag className="w-7 h-7 text-white" />
+            </div>
+            <h2 className="text-2xl md:text-3xl font-bold text-navy mb-4">
+              أنت مشتري؟
+            </h2>
+            <p className="text-muted-foreground mb-6 leading-relaxed">
+              تصفّح آلاف المنتجات من تجار موثّقين، واشترِ بأسعار الجملة بكل سهولة.
+            </p>
+            <ul className="space-y-3 mb-8">
+              {[
+                'تصفّح بدون تسجيل',
+                'مقارنة الأسعار بين التجار',
+                'طرق دفع متعددة وآمنة',
+                'تقييم التجار وقراءة المراجعات',
+              ].map((item) => (
+                <li key={item} className="flex items-center gap-2 text-navy">
+                  <CheckCircle2 className="w-5 h-5 text-gold shrink-0" />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+            <Link
+              to="/register"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-navy text-white rounded-xl font-bold hover:bg-navy/90 transition-colors"
+            >
+              سجّل كمشتري
+              <ArrowLeft className="w-4 h-4" />
+            </Link>
+          </div>
         </div>
       </section>
-    </div>
-  );
-}
 
-function Stat({ icon: Icon, value, label }) {
-  return (
-    <div>
-      <div className="w-14 h-14 mx-auto rounded-2xl bg-white/10 flex items-center justify-center mb-3">
-        <Icon className="w-7 h-7 text-gold" />
-      </div>
-      <p className="text-4xl font-extrabold mb-1">{value === null ? "—" : value.toLocaleString("ar-EG")}</p>
-      <p className="text-white/60 text-sm">{label}</p>
+      {/* CTA */}
+      <section className="max-w-4xl mx-auto px-4 sm:px-6 pb-20">
+        <div className="bg-gradient-to-br from-gold to-yellow-500 rounded-3xl p-10 md:p-14 text-center text-navy">
+          <h2 className="text-3xl md:text-4xl font-bold mb-4">
+            جاهز تبدأ تجارتك؟
+          </h2>
+          <p className="text-navy/80 mb-8 max-w-2xl mx-auto text-lg">
+            انضم لمئات التجار والمشترين الذين يثقون بسوق الوسيط يومياً
+          </p>
+          <Link
+            to="/register"
+            className="inline-flex items-center gap-2 px-8 py-4 bg-navy text-white rounded-xl font-bold text-lg hover:bg-navy/90 transition-colors"
+          >
+            إنشاء حساب مجاناً
+            <ArrowLeft className="w-5 h-5" />
+          </Link>
+        </div>
+      </section>
     </div>
   );
 }

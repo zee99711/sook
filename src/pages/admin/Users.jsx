@@ -1,123 +1,206 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { base44 } from "@/api/base44Client";
-import { useAuth } from "@/lib/AuthContext";
-import { logAction } from "@/lib/audit";
-import EmptyState from "@/components/merchant/EmptyState";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Users, Search, ShieldCheck, Ban, CheckCircle2, Loader2 } from "lucide-react";
-import { toast } from "@/components/ui/use-toast";
+// src/pages/admin/Users.jsx
+import React, { useEffect, useState, useMemo } from 'react';
+import { Users as UsersIcon, Search, Shield } from 'lucide-react';
+import PageHeader from '@/components/PageHeader';
+import { supabase } from '@/api/supabaseClient';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { useAuth } from '@/lib/AuthContext';
+import { logAction } from '@/lib/audit';
+import toast from 'react-hot-toast';
 
 export default function AdminUsers() {
-  const { user: admin } = useAuth();
+  const { user } = useAuth();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [query, setQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState("");
-  const [busy, setBusy] = useState(null);
+  const [search, setSearch] = useState('');
+  const [filterType, setFilterType] = useState('all');
 
-  const load = () => {
-    setLoading(true);
-    base44.entities.User.list()
-      .then((r) => setUsers(r || []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  };
-  useEffect(load, []);
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('*')
+          .order('created_at', { ascending: false });
+        setUsers(data || []);
+      } catch (err) {
+        toast.error('فشل التحميل');
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
     return users.filter((u) => {
-      if (q && !(u.email || "").toLowerCase().includes(q) && !(u.display_name || u.full_name || "").toLowerCase().includes(q)) return false;
-      if (typeFilter && u.account_type !== typeFilter) return false;
-      return true;
+      if (filterType !== 'all' && u.account_type !== filterType) return false;
+      if (!search) return true;
+      const s = search.toLowerCase();
+      return (
+        (u.full_name || '').toLowerCase().includes(s) ||
+        (u.email || '').toLowerCase().includes(s) ||
+        (u.phone || '').toLowerCase().includes(s)
+      );
     });
-  }, [users, query, typeFilter]);
+  }, [users, search, filterType]);
 
-  const setStatus = async (u, status) => {
-    setBusy(u.id);
+  const toggleStatus = async (u) => {
+    if (u.id === user.id) {
+      toast.error('لا يمكنك تعليق حسابك الخاص');
+      return;
+    }
+    const newStatus = u.status === 'suspended' ? 'active' : 'suspended';
     try {
-      await base44.entities.User.update(u.id, { status });
-      await logAction(admin, status === "suspended" ? "block_user" : "activate_user", u.email || u.id, `الحالة: ${status}`);
-      toast({ title: status === "suspended" ? "تم حظر المستخدم" : "تم تفعيل المستخدم" });
-      load();
+      await supabase.from('profiles').update({ status: newStatus }).eq('id', u.id);
+      await logAction(user, newStatus === 'suspended' ? 'suspend_user' : 'activate_user', u.id);
+      setUsers((prev) =>
+        prev.map((x) => (x.id === u.id ? { ...x, status: newStatus } : x))
+      );
+      toast.success(newStatus === 'suspended' ? 'تم التعليق' : 'تم التفعيل');
     } catch (err) {
-      toast({ title: err.message || "فشل", variant: "destructive" });
-    } finally {
-      setBusy(null);
+      toast.error('فشل التحديث');
     }
   };
 
-  const typeLabel = { admin: "مدير", merchant: "تاجر", buyer: "مشتري" };
-  const statusBadge = (s) => {
-    if (s === "suspended") return <Badge className="bg-red-100 text-red-700">محظور</Badge>;
-    if (s === "pending_review") return <Badge className="bg-amber-100 text-amber-700">قيد المراجعة</Badge>;
-    return <Badge className="bg-emerald-100 text-emerald-700">نشط</Badge>;
+  const promoteToAdmin = async (u) => {
+    if (!confirm(`هل تريد ترقية ${u.full_name} إلى أدمن؟`)) return;
+    try {
+      await supabase
+        .from('profiles')
+        .update({ account_type: 'admin' })
+        .eq('id', u.id);
+      await logAction(user, 'promote_admin', u.id);
+      setUsers((prev) =>
+        prev.map((x) => (x.id === u.id ? { ...x, account_type: 'admin' } : x))
+      );
+      toast.success('تم الترقية');
+    } catch (err) {
+      toast.error('فشل الترقية');
+    }
   };
+
+  const typeLabel = (t) =>
+    ({ admin: 'أدمن', merchant: 'تاجر', buyer: 'مشتري' }[t] || t);
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-navy mb-6 flex items-center gap-2"><Users className="w-6 h-6 text-gold" /> إدارة المستخدمين</h1>
+      <PageHeader
+        icon={UsersIcon}
+        title="إدارة المستخدمين"
+        subtitle={`${users.length} مستخدم`}
+      />
 
-      <div className="bg-card rounded-2xl border border-border p-4 mb-5 flex flex-wrap items-center gap-3">
+      <div className="bg-card rounded-2xl border border-border p-4 mb-6 flex flex-wrap gap-3">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="بحث بالاسم أو البريد..." className="pr-9 h-10" />
+          <Input
+            placeholder="بحث بالاسم، الإيميل، الجوال..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pr-10"
+          />
         </div>
-        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="h-10 rounded-md border border-input bg-transparent px-3 text-sm">
-          <option value="">كل الأنواع</option>
-          <option value="merchant">تجار</option>
-          <option value="buyer">مشترين</option>
-          <option value="admin">مدراء</option>
+        <select
+          value={filterType}
+          onChange={(e) => setFilterType(e.target.value)}
+          className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+        >
+          <option value="all">الكل</option>
+          <option value="merchant">التجار</option>
+          <option value="buyer">المشترون</option>
+          <option value="admin">الأدمن</option>
         </select>
       </div>
 
       {loading ? (
-        <EmptyState loading />
+        <div className="text-center py-12 text-muted-foreground">جارٍ التحميل...</div>
       ) : filtered.length === 0 ? (
-        <EmptyState icon={Users} title="لا يوجد مستخدمون" />
+        <div className="bg-card rounded-2xl border border-dashed border-border p-12 text-center">
+          <UsersIcon className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+          <p className="text-muted-foreground">لا يوجد مستخدمون مطابقون</p>
+        </div>
       ) : (
-        <div className="bg-card rounded-2xl border border-border overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-secondary/60 text-muted-foreground">
-              <tr>
-                <th className="text-right px-4 py-3 font-medium">المستخدم</th>
-                <th className="text-right px-4 py-3 font-medium">البريد</th>
-                <th className="text-right px-4 py-3 font-medium">النوع</th>
-                <th className="text-right px-4 py-3 font-medium">الحالة</th>
-                <th className="text-right px-4 py-3 font-medium">إجراءات</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((u) => (
-                <tr key={u.id} className="border-t border-border hover:bg-secondary/30">
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-full bg-navy text-white flex items-center justify-center text-xs font-bold">{(u.display_name || u.full_name || u.email || "م").charAt(0)}</div>
-                      <span className="font-medium text-navy">{u.display_name || u.full_name || "بدون اسم"}</span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-muted-foreground">{u.email}</td>
-                  <td className="px-4 py-3">{typeLabel[u.account_type] || u.account_type}</td>
-                  <td className="px-4 py-3">{statusBadge(u.status)}</td>
-                  <td className="px-4 py-3">
-                    {u.account_type === "admin" ? (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    ) : u.status === "suspended" ? (
-                      <Button size="sm" variant="outline" className="h-8 text-emerald-600 border-emerald-200 hover:bg-emerald-50" onClick={() => setStatus(u, "active")} disabled={busy === u.id}>
-                        {busy === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <CheckCircle2 className="w-3 h-3" />} تفعيل
-                      </Button>
-                    ) : (
-                      <Button size="sm" variant="outline" className="h-8 text-red-600 border-red-200 hover:bg-red-50" onClick={() => setStatus(u, "suspended")} disabled={busy === u.id}>
-                        {busy === u.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Ban className="w-3 h-3" />} حظر
-                      </Button>
-                    )}
-                  </td>
+        <div className="bg-card rounded-2xl border border-border overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-secondary/50">
+                <tr>
+                  <th className="text-right p-4 font-semibold text-navy">الاسم</th>
+                  <th className="text-right p-4 font-semibold text-navy">النوع</th>
+                  <th className="text-right p-4 font-semibold text-navy">الحالة</th>
+                  <th className="text-right p-4 font-semibold text-navy">تاريخ التسجيل</th>
+                  <th className="text-right p-4 font-semibold text-navy">إجراءات</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filtered.map((u) => (
+                  <tr key={u.id} className="border-t border-border">
+                    <td className="p-4">
+                      <p className="font-medium text-navy">{u.display_name || u.full_name}</p>
+                      <p className="text-xs text-muted-foreground">{u.email}</p>
+                    </td>
+                    <td className="p-4">
+                      <span
+                        className={`text-xs px-2 py-1 rounded-full font-medium ${
+                          u.account_type === 'admin'
+                            ? 'bg-red-100 text-red-800'
+                            : u.account_type === 'merchant'
+                            ? 'bg-gold/20 text-navy'
+                            : 'bg-navy/10 text-navy'
+                        }`}
+                      >
+                        {typeLabel(u.account_type)}
+                      </span>
+                    </td>
+                    <td className="p-4">
+                      <span
+                        className={`text-xs px-2 py-1 rounded-full font-medium ${
+                          u.status === 'suspended'
+                            ? 'bg-red-100 text-red-800'
+                            : 'bg-green-100 text-green-800'
+                        }`}
+                      >
+                        {u.status === 'suspended' ? 'معلّق' : 'نشط'}
+                      </span>
+                    </td>
+                    <td className="p-4 text-muted-foreground text-xs">
+                      {new Date(u.created_at).toLocaleDateString('ar-EG')}
+                    </td>
+                    <td className="p-4">
+                      <div className="flex flex-wrap gap-2">
+                        {u.account_type !== 'admin' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => promoteToAdmin(u)}
+                          >
+                            <Shield className="w-3.5 h-3.5 ml-1" />
+                            ترقية
+                          </Button>
+                        )}
+                        {u.id !== user.id && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => toggleStatus(u)}
+                            className={
+                              u.status === 'suspended'
+                                ? 'text-green-600 border-green-200'
+                                : 'text-destructive border-destructive/30'
+                            }
+                          >
+                            {u.status === 'suspended' ? 'تفعيل' : 'تعليق'}
+                          </Button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
     </div>

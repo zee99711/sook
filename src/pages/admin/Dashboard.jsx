@@ -1,93 +1,258 @@
-import React, { useEffect, useState } from "react";
-import { base44 } from "@/api/base44Client";
-import StatCard from "@/components/StatCard";
-import EmptyState from "@/components/merchant/EmptyState";
-import { Store, Users, FileText, TrendingUp, Clock, ShieldAlert } from "lucide-react";
+// src/pages/admin/Dashboard.jsx
+import React, { useEffect, useState } from 'react';
+import {
+  LayoutDashboard,
+  Store,
+  Users,
+  FileText,
+  TrendingUp,
+  Clock,
+} from 'lucide-react';
+import PageHeader from '@/components/PageHeader';
+import StatCard from '@/components/StatCard';
+import { supabase } from '@/api/supabaseClient';
+import { invoicesAPI } from '@/api/entities';
+import { useAuth } from '@/lib/AuthContext';
+import { logAction } from '@/lib/audit';
 
 export default function AdminDashboard() {
-  const [stats, setStats] = useState({ merchants: 0, buyers: 0, invoices: 0, revenue: 0, pending: 0, suspended: 0 });
+  const { user } = useAuth();
+  const [stats, setStats] = useState({
+    merchants: 0,
+    buyers: 0,
+    invoices: 0,
+    totalRevenue: 0,
+    pendingVerifications: 0,
+  });
   const [pendingMerchants, setPendingMerchants] = useState([]);
+  const [recentInvoices, setRecentInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    (async () => {
+    const load = async () => {
       try {
-        const [merchants, users, invoices] = await Promise.all([
-          base44.entities.MerchantProfile.list("-created_date", 200),
-          base44.entities.User.list(),
-          base44.entities.Invoice.list("-created_date", 200),
+        const [
+          { count: merchantsCount },
+          { count: buyersCount },
+          invoices,
+          { data: pending },
+        ] = await Promise.all([
+          supabase
+            .from('profiles')
+            .select('*', { count: 'exact', head: true })
+            .eq('account_type', 'merchant'),
+          supabase
+            .from('profiles')
+            .select('*', { count: 'exact', head: true })
+            .eq('account_type', 'buyer'),
+          invoicesAPI.listAll(),
+          supabase
+            .from('merchant_profiles')
+            .select(`
+              id, business_name, commercial_license_file, created_at, user_id,
+              profiles:user_id(full_name, display_name, email)
+            `)
+            .eq('license_verified', false)
+            .order('created_at', { ascending: false })
+            .limit(10),
         ]);
-        const buyers = (users || []).filter((u) => u.account_type === "buyer");
-        const pending = (merchants || []).filter((m) => !m.license_verified);
-        const revenue = (invoices || []).reduce((s, i) => s + (i.commission || 0), 0);
+
+        const totalRevenue = (invoices || [])
+          .filter((i) => i.status === 'delivered')
+          .reduce((s, i) => s + Number(i.commission || 0), 0);
+
         setStats({
-          merchants: (merchants || []).length,
-          buyers: buyers.length,
-          invoices: (invoices || []).length,
-          revenue,
-          pending: pending.length,
-          suspended: (users || []).filter((u) => u.status === "suspended").length,
+          merchants: merchantsCount || 0,
+          buyers: buyersCount || 0,
+          invoices: invoices?.length || 0,
+          totalRevenue,
+          pendingVerifications: pending?.length || 0,
         });
-        setPendingMerchants(pending.slice(0, 5));
-      } catch {
+
+        setPendingMerchants(pending || []);
+        setRecentInvoices(invoices?.slice(0, 5) || []);
+      } catch (err) {
+        console.error('Admin dashboard error:', err);
       } finally {
         setLoading(false);
       }
-    })();
+    };
+
+    load();
   }, []);
 
-  if (loading) return <EmptyState loading />;
+  const approveMerchant = async (merchantProfileId) => {
+    try {
+      const { error } = await supabase
+        .from('merchant_profiles')
+        .update({
+          license_verified: true,
+          license_verified_at: new Date().toISOString(),
+          license_verified_by: user.id,
+        })
+        .eq('id', merchantProfileId);
+
+      if (error) throw error;
+
+      await logAction(user, 'approve_merchant', merchantProfileId, 'تم توثيق السجل التجاري');
+      setPendingMerchants((prev) => prev.filter((m) => m.id !== merchantProfileId));
+      setStats((s) => ({ ...s, pendingVerifications: Math.max(0, s.pendingVerifications - 1) }));
+    } catch (err) {
+      console.error(err);
+      alert('فشل التوثيق');
+    }
+  };
+
+  const rejectMerchant = async (merchantProfileId) => {
+    if (!confirm('هل تريد رفض هذا السجل التجاري؟')) return;
+    try {
+      await supabase
+        .from('merchant_profiles')
+        .update({
+          commercial_license_file: null,
+          license_verified: false,
+        })
+        .eq('id', merchantProfileId);
+
+      await logAction(user, 'reject_merchant', merchantProfileId, 'تم رفض السجل التجاري');
+      setPendingMerchants((prev) => prev.filter((m) => m.id !== merchantProfileId));
+    } catch (err) {
+      console.error(err);
+      alert('فشل الرفض');
+    }
+  };
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-navy mb-6">لوحة تحكم الإدارة</h1>
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <StatCard icon={Store} label="التجار" value={stats.merchants} tone="navy" />
-        <StatCard icon={Users} label="المشترين" value={stats.buyers} tone="gold" />
-        <StatCard icon={FileText} label="الفواتير" value={stats.invoices} tone="muted" />
-        <StatCard icon={TrendingUp} label="إيرادات المنصة" value={`${stats.revenue.toLocaleString("ar-EG", { maximumFractionDigits: 2 })} ر.س`} tone="navy" />
-      </div>
+      <PageHeader
+        icon={LayoutDashboard}
+        title="لوحة تحكم الأدمن"
+        subtitle="إدارة كاملة للمنصة"
+      />
 
-      <div className="grid lg:grid-cols-2 gap-6">
-        <div className="bg-card rounded-2xl border border-border p-5">
-          <h3 className="font-bold text-navy mb-4 flex items-center gap-2"><Clock className="w-5 h-5 text-gold" /> تجار قيد المراجعة ({stats.pending})</h3>
-          {pendingMerchants.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-6">لا يوجد تجار بانتظار المراجعة</p>
-          ) : (
-            <div className="space-y-3">
-              {pendingMerchants.map((m) => (
-                <div key={m.id} className="flex items-center gap-3 p-3 rounded-xl bg-secondary/40">
-                  <div className="w-10 h-10 rounded-lg bg-gold flex items-center justify-center text-navy font-bold">{(m.business_name || "ت").charAt(0)}</div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-navy text-sm truncate">{m.business_name}</p>
-                    <p className="text-xs text-muted-foreground">{m.region || "—"}</p>
-                  </div>
-                  <span className="px-2 py-1 rounded-md bg-amber-100 text-amber-700 text-xs">قيد المراجعة</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="bg-card rounded-2xl border border-border p-5">
-          <h3 className="font-bold text-navy mb-4 flex items-center gap-2"><ShieldAlert className="w-5 h-5 text-gold" /> حالة المنصة</h3>
-          <div className="space-y-3">
-            <Row label="مستخدمون معلّقون" value={stats.suspended} />
-            <Row label="تجار موثّقون" value={stats.merchants - stats.pending} />
-            <Row label="تجار قيد المراجعة" value={stats.pending} />
-            <Row label="إجمالي العمولات المحصّلة" value={`${stats.revenue.toLocaleString("ar-EG", { maximumFractionDigits: 2 })} ر.س`} />
+      {loading ? (
+        <div className="text-center py-12 text-muted-foreground">جارٍ التحميل...</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-8">
+            <StatCard icon={Store} label="التجار" value={stats.merchants} tone="navy" />
+            <StatCard icon={Users} label="المشترون" value={stats.buyers} tone="gold" />
+            <StatCard icon={FileText} label="الفواتير" value={stats.invoices} tone="navy" />
+            <StatCard
+              icon={TrendingUp}
+              label="إيرادات العمولة"
+              value={`${stats.totalRevenue.toFixed(0)} ر.س`}
+              tone="gold"
+            />
+            <StatCard
+              icon={Clock}
+              label="قيد التوثيق"
+              value={stats.pendingVerifications}
+              tone="navy"
+            />
           </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
-function Row({ label, value }) {
-  return (
-    <div className="flex items-center justify-between p-3 rounded-xl bg-secondary/40">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <span className="font-bold text-navy">{value}</span>
+          {/* السجلات المعلقة */}
+          <div className="bg-card rounded-2xl border border-border p-6 mb-6">
+            <h2 className="text-lg font-bold text-navy mb-4">
+              سجلات تجارية بحاجة لتوثيق ({pendingMerchants.length})
+            </h2>
+
+            {pendingMerchants.length === 0 ? (
+              <p className="text-center py-8 text-muted-foreground text-sm">
+                لا توجد سجلات بحاجة للتوثيق
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {pendingMerchants.map((m) => {
+                  const p = m.profiles || {};
+                  return (
+                    <div
+                      key={m.id}
+                      className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl bg-secondary/40"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-navy text-white flex items-center justify-center font-bold">
+                          {(m.business_name || 'م').charAt(0)}
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-navy">
+                            {m.business_name}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {p.display_name || p.full_name} · {p.email}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2">
+                        {m.commercial_license_file && (
+                          <a
+                            href={m.commercial_license_file}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-3 py-1.5 rounded-lg text-xs border border-border hover:bg-secondary"
+                          >
+                            عرض السجل
+                          </a>
+                        )}
+                        <button
+                          onClick={() => approveMerchant(m.id)}
+                          className="px-3 py-1.5 rounded-lg text-xs bg-green-600 text-white hover:bg-green-700"
+                        >
+                          موافقة
+                        </button>
+                        <button
+                          onClick={() => rejectMerchant(m.id)}
+                          className="px-3 py-1.5 rounded-lg text-xs bg-destructive text-white hover:bg-destructive/90"
+                        >
+                          رفض
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* آخر الفواتير */}
+          <div className="bg-card rounded-2xl border border-border p-6">
+            <h2 className="text-lg font-bold text-navy mb-4">آخر الفواتير</h2>
+            {recentInvoices.length === 0 ? (
+              <p className="text-center py-8 text-muted-foreground text-sm">
+                لا توجد فواتير بعد
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {recentInvoices.map((inv) => (
+                  <div
+                    key={inv.id}
+                    className="flex items-center justify-between p-3 rounded-xl hover:bg-secondary/50"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-navy">
+                        {inv.invoice_number}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {new Date(inv.created_at).toLocaleDateString('ar-EG')}
+                      </p>
+                    </div>
+                    <div className="text-left">
+                      <p className="text-sm font-bold text-navy">
+                        {Number(inv.total).toFixed(2)} ر.س
+                      </p>
+                      <p className="text-xs text-gold">
+                        عمولة: {Number(inv.commission || 0).toFixed(2)}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

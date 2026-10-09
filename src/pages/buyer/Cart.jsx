@@ -1,186 +1,265 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
-import { base44 } from "@/api/base44Client";
-import { useBuyerData, merchantById } from "@/hooks/useBuyerData";
-import { useCart } from "@/context/CartContext";
-import { PAYMENT_METHODS } from "@/lib/buyerConstants";
-import { getCommissions, orderTotals } from "@/lib/commissions";
-import { generateInvoiceNumber, generateAndSaveInvoicePDF } from "@/lib/invoiceUtils";
-import { notifyMerchantNewOrder } from "@/lib/notify";
-import EmptyState from "@/components/merchant/EmptyState";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { ShoppingCart, Trash2, Minus, Plus, Check, Loader2, MessageCircle, Package } from "lucide-react";
-import { toast } from "@/components/ui/use-toast";
+// src/pages/buyer/Cart.jsx
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ShoppingCart, Trash2, Minus, Plus, Store } from 'lucide-react';
+import PageHeader from '@/components/PageHeader';
+import { useCart } from '@/context/CartContext';
+import { useAuth } from '@/lib/AuthContext';
+import { invoicesAPI, productsAPI } from '@/api/entities';
+import { getCommissions, orderTotals } from '@/lib/commissions';
+import { notifyMerchantNewOrder } from '@/lib/notify';
+import { generateInvoiceNumber, generateAndSaveInvoicePDF } from '@/lib/invoiceUtils';
+import { PAYMENT_METHODS } from '@/lib/buyerConstants';
+import { Button } from '@/components/ui/button';
+import toast from 'react-hot-toast';
 
 export default function BuyerCart() {
-  const { user, merchants, loading } = useBuyerData();
-  const { items, setQty, remove, clear } = useCart();
   const navigate = useNavigate();
-  const [method, setMethod] = useState("cod");
-  const [notes, setNotes] = useState("");
-  const [placing, setPlacing] = useState(false);
-  const [commissions, setCommissions] = useState({ cod: 0.03, usdt: 0.02, shamcash: 0.025, syrcash: 0.025, tax: 0 });
+  const { user } = useAuth();
+  const { items, updateQty, removeItem, clearCart, itemsByMerchant, subtotal } = useCart();
+  const [paymentMethod, setPaymentMethod] = useState('cod');
+  const [notes, setNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => { getCommissions().then(setCommissions); }, []);
+  const groups = itemsByMerchant();
+  const merchantIds = Object.keys(groups);
 
-  const groups = useMemo(() => {
-    const map = {};
-    items.forEach((it) => {
-      if (!map[it.merchant_id]) map[it.merchant_id] = [];
-      map[it.merchant_id].push(it);
-    });
-    return Object.entries(map);
-  }, [items]);
+  if (items.length === 0) {
+    return (
+      <div>
+        <PageHeader icon={ShoppingCart} title="سلة المشتري" />
+        <div className="bg-card rounded-2xl border border-dashed border-border p-12 text-center">
+          <ShoppingCart className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+          <p className="text-navy font-medium mb-2">السلة فارغة</p>
+          <p className="text-sm text-muted-foreground mb-4">
+            ابدأ بتصفح المنتجات وأضف ما تريد
+          </p>
+          <Button
+            onClick={() => navigate('/buyer/browse')}
+            className="bg-navy text-white hover:bg-navy/90"
+          >
+            تصفح المنتجات
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
-  const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0);
-  const totals = orderTotals(subtotal, method, commissions);
+  const submitOrder = async () => {
+    if (!user?.id) return;
+    setSubmitting(true);
 
-  const placeOrder = async () => {
-    if (!groups.length) return;
-    setPlacing(true);
     try {
-      const buyerName = user?.display_name || user?.full_name || "مشتري";
-      const methodLabel = PAYMENT_METHODS.find((m) => m.id === method)?.label || "";
-      const firstPdfUrl = "";
+      const commissions = await getCommissions();
+      const createdInvoices = [];
 
-      for (const [merchantId, groupItems] of groups) {
-        const sub = groupItems.reduce((s, i) => s + i.price * i.qty, 0);
-        const t = orderTotals(sub, method, commissions);
-        const invItems = groupItems.map((i) => ({ name: i.name, qty: i.qty, unit_price: i.price, subtotal: i.price * i.qty }));
-        const invoice = await base44.entities.Invoice.create({
-          buyer_id: user.id,
+      // إنشاء فاتورة لكل تاجر
+      for (const merchantId of merchantIds) {
+        const merchantItems = groups[merchantId];
+        const merchantSubtotal = merchantItems.reduce(
+          (s, it) => s + Number(it.product.price) * it.qty,
+          0
+        );
+
+        const totals = orderTotals(merchantSubtotal, paymentMethod, commissions);
+        const invoiceNumber = generateInvoiceNumber();
+
+        // 1. إنشاء الفاتورة
+        const invoice = await invoicesAPI.create({
+          invoice_number: invoiceNumber,
           merchant_id: merchantId,
-          invoice_number: generateInvoiceNumber(),
-          items: invItems,
-          subtotal: sub,
-          total: t.total,
-          commission: t.commission,
-          net_amount: t.net,
-          status: "issued",
-          payment_method: methodLabel,
-          payment_status: "unpaid",
-          delivery_status: "pending",
+          buyer_id: user.id,
+          subtotal: totals.subtotal,
+          commission: totals.commission,
+          tax: totals.tax,
+          total: totals.total,
+          net_merchant: totals.net,
+          payment_method: paymentMethod,
+          payment_status: 'pending',
+          status: 'pending',
+          notes: notes || null,
         });
 
-        // توليد PDF رسمي + QR ورفعه للتخزين وربطه بالفاتورة
-        const merchantName = merchantById(merchants, merchantId)?.business_name || "تاجر";
-        try {
-          const pdf_url = await generateAndSaveInvoicePDF(invoice, {
-            merchantName, buyerName, subtotal: sub, commission: t.commission, net: t.net, methodLabel,
+        // 2. إنشاء البنود
+        for (const it of merchantItems) {
+          await supabase.from('invoice_items').insert({
+            invoice_id: invoice.id,
+            product_id: it.product.id,
+            name: it.product.name,
+            qty: it.qty,
+            unit_price: it.product.price,
+            subtotal: Number(it.product.price) * it.qty,
           });
-          await base44.entities.Invoice.update(invoice.id, { pdf_url });
-          invoice.pdf_url = pdf_url;
-          if (!firstPdfUrl) window.open(pdf_url, "_blank");
-        } catch {
-          // تجاهل فشل التوليد — الفاتورة تبقى مسجلة
+
+          // 3. تحديث المخزون
+          try {
+            await productsAPI.update(it.product.id, {
+              stock_quantity: Math.max(0, it.product.stock_quantity - it.qty),
+            });
+          } catch (e) {
+            console.warn('Stock update failed:', e);
+          }
         }
 
-        // إشعار داخلي + واتساب للتاجر
-        await notifyMerchantNewOrder({ ...invoice, total: t.total }, buyerName);
+        // 4. إشعار التاجر
+        const buyerName = user.display_name || user.full_name || 'مشتري';
+        await notifyMerchantNewOrder({ ...invoice, total: totals.total }, buyerName);
+
+        createdInvoices.push(invoice);
       }
 
-      clear();
-      toast({ title: "تم تأكيد طلبك بنجاح", description: "تم توليد الفاتورة وإرسال إشعار للتاجر عبر المنصة وواتساب." });
-      navigate("/buyer/orders");
+      clearCart();
+      toast.success(`تم إنشاء ${createdInvoices.length} طلب`);
+      navigate('/buyer/orders');
     } catch (err) {
-      toast({ title: err.message || "فشل تأكيد الطلب", variant: "destructive" });
+      console.error('Order submission error:', err);
+      toast.error('فشل إرسال الطلب — حاول مجدداً');
     } finally {
-      setPlacing(false);
+      setSubmitting(false);
     }
   };
 
-  if (loading) return <EmptyState loading />;
-
   return (
     <div>
-      <h1 className="text-2xl font-bold text-navy mb-6 flex items-center gap-2"><ShoppingCart className="w-6 h-6 text-gold" /> سلة المشتري</h1>
+      <PageHeader
+        icon={ShoppingCart}
+        title="سلة المشتري"
+        subtitle={`${items.length} منتج من ${merchantIds.length} تاجر`}
+      />
 
-      {items.length === 0 ? (
-        <EmptyState icon={ShoppingCart} title="سلتك فارغة" subtitle="تصفّح المنتجات وأضف ما تريد" action={<Button asChild className="bg-gold text-navy hover:bg-gold/90"><Link to="/buyer/browse">ابدأ التسوّق</Link></Button>} />
-      ) : (
-        <div className="grid lg:grid-cols-[1fr_360px] gap-6">
-          <div className="space-y-6">
-            {groups.map(([merchantId, groupItems]) => {
-              const m = merchantById(merchants, merchantId);
-              const sub = groupItems.reduce((s, i) => s + i.price * i.qty, 0);
-              return (
-                <div key={merchantId} className="bg-card rounded-2xl border border-border overflow-hidden">
-                  <div className="flex items-center justify-between px-4 py-3 bg-secondary/50 border-b border-border">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-gold flex items-center justify-center text-navy font-bold text-sm">{(m?.business_name || "ت").charAt(0)}</div>
-                      <span className="font-semibold text-navy">{m?.business_name || "تاجر"}</span>
-                    </div>
-                    {m && <Button asChild variant="ghost" size="sm"><Link to={`/buyer/chat?merchant=${m.user_id}`}><MessageCircle className="w-4 h-4" /> مراسلة</Link></Button>}
-                  </div>
-                  <div className="divide-y divide-border">
-                    {groupItems.map((it) => (
-                      <div key={it.id} className="flex items-center gap-3 p-4">
-                        <div className="w-14 h-14 rounded-lg bg-secondary overflow-hidden shrink-0">
-                          {it.image ? <img src={it.image} alt="" className="w-full h-full object-cover" /> : <Package className="w-full h-full p-4 text-muted-foreground" />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-navy truncate">{it.name}</p>
-                          <p className="text-sm text-muted-foreground">{(it.price || 0).toLocaleString("ar-EG")} ر.س / {it.unit}</p>
-                        </div>
-                        <div className="flex items-center border border-border rounded-lg">
-                          <button onClick={() => setQty(it.id, it.qty - 1)} className="p-1.5 hover:bg-secondary"><Minus className="w-3.5 h-3.5" /></button>
-                          <input value={it.qty} onChange={(e) => setQty(it.id, Math.max(1, Number(e.target.value) || 1))} className="w-12 text-center text-sm border-0 focus:outline-none bg-transparent" />
-                          <button onClick={() => setQty(it.id, it.qty + 1)} className="p-1.5 hover:bg-secondary"><Plus className="w-3.5 h-3.5" /></button>
-                        </div>
-                        <span className="font-bold text-navy w-24 text-left">{(it.price * it.qty).toLocaleString("ar-EG")} ر.س</span>
-                        <button onClick={() => remove(it.id)} className="p-2 rounded-lg hover:bg-red-50 text-red-600"><Trash2 className="w-4 h-4" /></button>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="px-4 py-3 bg-secondary/30 flex justify-between text-sm">
-                    <span className="text-muted-foreground">مجموع التاجر</span>
-                    <span className="font-bold text-navy">{sub.toLocaleString("ar-EG")} ر.س</span>
-                  </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* العناصر */}
+        <div className="lg:col-span-2 space-y-4">
+          {merchantIds.map((merchantId) => {
+            const merchantItems = groups[merchantId];
+            const merchantName = merchantItems[0].product.merchant_name || 'تاجر';
+            return (
+              <div key={merchantId} className="bg-card rounded-2xl border border-border p-5">
+                <div className="flex items-center gap-2 mb-4 pb-3 border-b border-border">
+                  <Store className="w-4 h-4 text-gold" />
+                  <span className="text-sm font-medium text-navy">{merchantName}</span>
                 </div>
-              );
-            })}
-          </div>
 
-          <div className="space-y-4">
-            <div className="bg-card rounded-2xl border border-border p-5 lg:sticky lg:top-24">
-              <h3 className="font-bold text-navy mb-4">ملخص الطلب</h3>
-              <div className="space-y-2 text-sm mb-4">
-                <div className="flex justify-between text-muted-foreground"><span>المجموع الفرعي</span><span className="text-foreground font-medium">{totals.subtotal.toLocaleString("ar-EG")} ر.س</span></div>
-                <div className="flex justify-between text-muted-foreground"><span>العمولة</span><span className="text-foreground font-medium">{totals.commission.toLocaleString("ar-EG", { maximumFractionDigits: 2 })} ر.س</span></div>
-                <div className="flex justify-between text-muted-foreground"><span>الضريبة</span><span className="text-foreground font-medium">{totals.tax.toLocaleString("ar-EG")} ر.س</span></div>
-                <div className="border-t border-border pt-2 flex justify-between font-bold text-navy text-base"><span>الإجمالي</span><span>{totals.total.toLocaleString("ar-EG")} ر.س</span></div>
-              </div>
-
-              <p className="text-sm font-medium text-navy mb-2">طريقة الدفع</p>
-              <div className="space-y-2 mb-4">
-                {PAYMENT_METHODS.map((m) => {
-                  const rate = { cod: commissions.cod, usdt: commissions.usdt, shamcash: commissions.shamcash, syrcash: commissions.syrcash }[m.id];
-                  return (
-                    <label key={m.id} className={`flex items-center justify-between p-3 rounded-xl border-2 cursor-pointer transition ${method === m.id ? "border-gold bg-gold/5" : "border-border"}`}>
-                      <div className="flex items-center gap-2">
-                        <input type="radio" name="method" checked={method === m.id} onChange={() => setMethod(m.id)} className="accent-[#C9A961]" />
-                        <span className="text-sm font-medium text-navy">{m.label}</span>
+                <div className="space-y-3">
+                  {merchantItems.map((it) => (
+                    <div key={it.product.id} className="flex gap-3">
+                      <div className="w-16 h-16 bg-secondary rounded-lg overflow-hidden shrink-0">
+                        {it.product.images?.[0] ? (
+                          <img
+                            src={it.product.images[0]}
+                            alt={it.product.name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : null}
                       </div>
-                      <span className="text-xs text-muted-foreground">عمولة {((rate || 0) * 100).toFixed(1)}%</span>
-                    </label>
-                  );
-                })}
-              </div>
 
-              <div className="mb-4">
-                <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="ملاحظات للتاجر (اختياري)..." rows={2} />
-              </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-navy truncate">
+                          {it.product.name}
+                        </p>
+                        <p className="text-xs text-gold font-bold mt-1">
+                          {Number(it.product.price).toFixed(2)} ر.س / {it.product.unit}
+                        </p>
+                      </div>
 
-              <Button onClick={placeOrder} disabled={placing} className="w-full h-12 bg-gold text-navy hover:bg-gold/90 font-semibold">
-                {placing ? <><Loader2 className="w-4 h-4 animate-spin" /> جارٍ التأكيد وتوليد الفاتورة...</> : <><Check className="w-4 h-4" /> تأكيد الطلب</>}
-              </Button>
-              <p className="text-xs text-muted-foreground text-center mt-3">سيتم توليد فاتورة PDF وإرسال إشعار داخلي ورسالة واتساب للتاجر.</p>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => updateQty(it.product.id, it.qty - 1)}
+                          className="w-7 h-7 rounded border border-border flex items-center justify-center hover:bg-secondary"
+                        >
+                          <Minus className="w-3 h-3" />
+                        </button>
+                        <span className="w-8 text-center text-sm font-medium" dir="ltr">
+                          {it.qty}
+                        </span>
+                        <button
+                          onClick={() => updateQty(it.product.id, it.qty + 1)}
+                          className="w-7 h-7 rounded border border-border flex items-center justify-center hover:bg-secondary"
+                        >
+                          <Plus className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => removeItem(it.product.id)}
+                          className="p-1.5 rounded hover:bg-destructive/10 text-destructive"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* الملخص */}
+        <div className="lg:col-span-1">
+          <div className="bg-card rounded-2xl border border-border p-5 sticky top-24 space-y-4">
+            <h3 className="font-bold text-navy">ملخص الطلب</h3>
+
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">المجموع الفرعي</span>
+              <span className="font-medium">{subtotal.toFixed(2)} ر.س</span>
             </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground block mb-2">
+                طريقة الدفع
+              </label>
+              <div className="space-y-2">
+                {PAYMENT_METHODS.map((m) => (
+                  <label
+                    key={m.id}
+                    className={`flex items-center gap-2 p-3 rounded-lg border cursor-pointer transition-colors ${
+                      paymentMethod === m.id
+                        ? 'border-gold bg-gold/5'
+                        : 'border-border hover:border-gold/50'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="payment"
+                      value={m.id}
+                      checked={paymentMethod === m.id}
+                      onChange={(e) => setPaymentMethod(e.target.value)}
+                      className="accent-gold"
+                    />
+                    <span className="text-xl">{m.icon}</span>
+                    <span className="text-sm font-medium flex-1">{m.label}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {(m.commission * 100).toFixed(1)}%
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs text-muted-foreground">ملاحظات</label>
+              <textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                rows={2}
+                className="w-full rounded-lg border border-input bg-background p-2 text-sm"
+                placeholder="أي تعليمات خاصة..."
+              />
+            </div>
+
+            <Button
+              onClick={submitOrder}
+              disabled={submitting}
+              className="w-full bg-navy text-white hover:bg-navy/90 h-11"
+            >
+              {submitting ? 'جارٍ إرسال الطلب...' : 'تأكيد الطلب'}
+            </Button>
+
+            <p className="text-xs text-muted-foreground text-center">
+              سيتم إخطار التجار لمراجعة طلبك
+            </p>
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }

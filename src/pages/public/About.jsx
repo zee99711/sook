@@ -1,64 +1,98 @@
-import React from "react";
-import Reveal from "@/components/public/Reveal";
-import { Target, Eye, Handshake, ShieldCheck, Users, TrendingUp } from "lucide-react";
-
-const values = [
-  { icon: ShieldCheck, title: "الثقة والمصداقية", desc: "نتحقق من كل تاجر قبل تفعيله لضمان سوق جاد خالٍ من الاحتيال." },
-  { icon: Handshake, title: "الشفافية", desc: "عمولات واضحة، فواتير رسمية، وتقييمات حقيقية بين الأطراف." },
-  { icon: Users, title: "خدمة الإنسان", desc: "واجهة بسيطة تناسب الجميع، بخطوط كبيرة وتصميم يراعي كبار السن." },
-  { icon: TrendingUp, title: "النمو المستدام", desc: "نساعد التجار والمشترين على النمو عبر أدوات تجارة احترافية." },
-];
+// src/pages/public/About.jsx
+import React from 'react';
+import { Target, Users, Shield, TrendingUp, Heart, Award } from 'lucide-react';
 
 export default function About() {
+  const features = [
+    {
+      icon: Target,
+      title: 'رؤيتنا',
+      desc: 'أن نكون المنصة الرائدة في التجارة B2B في العالم العربي، ونسهل على التجار الوصول لأسواق جديدة.',
+    },
+    {
+      icon: Users,
+      title: 'فريقنا',
+      desc: 'نحن فريق من التجار والمطورين نجمع بين خبرة السوق العميقة والتقنية الحديثة.',
+    },
+    {
+      icon: Shield,
+      title: 'ثقتنا',
+      desc: 'نتحقق يدوياً من كل سجل تجاري لضمان بيئة آمنة وموثوقة لكل الأطراف.',
+    },
+    {
+      icon: TrendingUp,
+      title: 'نمو مستمر',
+      desc: 'نعمل باستمرار على إضافة ميزات جديدة تلبي احتياجات التجار والمشترين.',
+    },
+    {
+      icon: Heart,
+      title: 'العميل أولاً',
+      desc: 'كل قرار نتخذه يهدف لخدمة تجارنا ومشترينا، وليس فقط زيادة الأرباح.',
+    },
+    {
+      icon: Award,
+      title: 'الجودة',
+      desc: 'نلتزم بأعلى معايير الجودة في كل تفصيل، من التصميم إلى خدمة العملاء.',
+    },
+  ];
+
   return (
-    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-14">
-      <Reveal className="text-center mb-12">
-        <h1 className="text-3xl sm:text-4xl font-bold text-navy mb-4">من نحن</h1>
-        <p className="text-muted-foreground text-lg leading-relaxed">
-          سوق الوسيط منصة عربية متكاملة للتجارة بين الشركات (B2B)، وُلدت لربط التجار الموثّقين بالمشترين في بيئة رقمية رسمية وآمنة.
-        </p>
-      </Reveal>
+    <div>
+      {/* Hero */}
+      <section className="bg-navy text-white py-20">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 text-center">
+          <h1 className="text-4xl md:text-5xl font-bold mb-4">من نحن</h1>
+          <p className="text-white/80 text-lg leading-relaxed max-w-2xl mx-auto">
+            سوق الوسيط هي منصة عربية متكاملة للتجارة بين الشركات (B2B)،
+            تربط التجار الموثّقين بالمشترين في بيئة آمنة وموثوقة.
+          </p>
+        </div>
+      </section>
 
-      <div className="grid sm:grid-cols-2 gap-6 mb-14">
-        <Reveal>
-          <div className="bg-card rounded-2xl border border-border p-6 h-full">
-            <div className="w-12 h-12 rounded-xl bg-navy text-gold flex items-center justify-center mb-4"><Target className="w-6 h-6" /></div>
-            <h2 className="font-bold text-navy text-xl mb-2">رسالتنا</h2>
-            <p className="text-muted-foreground leading-relaxed">
-              تسهيل التجارة بالجملة في المنطقة العربية عبر منصة موحّدة تضمن الثقة، وتبسّط إدارة المنتجات والفواتير والتواصل بين الأطراف.
+      {/* Content */}
+      <section className="max-w-5xl mx-auto px-4 sm:px-6 py-16">
+        <div className="bg-card rounded-2xl border border-border p-8 md:p-12 mb-12">
+          <h2 className="text-2xl font-bold text-navy mb-4">قصتنا</h2>
+          <div className="space-y-4 text-muted-foreground leading-relaxed">
+            <p>
+              بدأت فكرة سوق الوسيط من مشكلة حقيقية واجهناها في عالم التجارة بالجملة:
+              صعوبة العثور على مزودين موثوقين، وعدم وجود منصة تجمع التجار والمشترين
+              في مكان واحد بأمان وشفافية.
+            </p>
+            <p>
+              لاحظنا أن التجار يعتمدون على العلاقات الشخصية والاتصالات المباشرة فقط،
+              مما يحد من نموهم ويصعّب عليهم الوصول لعملاء جدد. بينما يعاني المشترون
+              من صعوبة المقارنة بين الأسعار والتحقق من مصداقية البائعين.
+            </p>
+            <p>
+              لذلك قررنا بناء منصة تحل هذه المشاكل من جذورها، من خلال التحقق اليدوي
+              من السجلات التجارية، توفير أدوات إدارة متقدمة، وضمان بيئة تجارية آمنة
+              للجميع.
             </p>
           </div>
-        </Reveal>
-        <Reveal delay={0.1}>
-          <div className="bg-card rounded-2xl border border-border p-6 h-full">
-            <div className="w-12 h-12 rounded-xl bg-navy text-gold flex items-center justify-center mb-4"><Eye className="w-6 h-6" /></div>
-            <h2 className="font-bold text-navy text-xl mb-2">رؤيتنا</h2>
-            <p className="text-muted-foreground leading-relaxed">
-              أن نكون السوق الرقمي الأول للتجار والمشترين في المنطقة، بتجربة بسيطة ورسمية تناسب جميع الأعمار.
-            </p>
-          </div>
-        </Reveal>
-      </div>
+        </div>
 
-      <Reveal className="text-center mb-8">
-        <h2 className="text-2xl sm:text-3xl font-bold text-navy">قيمنا</h2>
-      </Reveal>
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-        {values.map((v, i) => {
-          const Icon = v.icon;
-          return (
-            <Reveal key={v.title} delay={i * 0.08}>
-              <div className="bg-card rounded-2xl border border-border p-6 text-center h-full hover:shadow-md transition">
-                <div className="w-14 h-14 mx-auto rounded-2xl bg-gold/15 text-gold flex items-center justify-center mb-4">
-                  <Icon className="w-7 h-7" />
+        <h2 className="text-2xl font-bold text-navy mb-6 text-center">قيمنا</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {features.map((f) => {
+            const Icon = f.icon;
+            return (
+              <div
+                key={f.title}
+                className="bg-card rounded-2xl border border-border p-6 hover:shadow-lg transition-shadow"
+              >
+                <div className="w-12 h-12 rounded-xl bg-navy/10 text-navy flex items-center justify-center mb-3">
+                  <Icon className="w-6 h-6" />
                 </div>
-                <h3 className="font-bold text-navy mb-2">{v.title}</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">{v.desc}</p>
+                <h3 className="font-bold text-navy mb-2">{f.title}</h3>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  {f.desc}
+                </p>
               </div>
-            </Reveal>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      </section>
     </div>
   );
 }

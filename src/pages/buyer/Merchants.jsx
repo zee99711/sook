@@ -1,99 +1,121 @@
-import React, { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { base44 } from "@/api/base44Client";
-import { useBuyerData } from "@/hooks/useBuyerData";
-import EmptyState from "@/components/merchant/EmptyState";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Store, Search, Star, MapPin, Heart, MessageSquare, HeartOff } from "lucide-react";
-import { toast } from "@/components/ui/use-toast";
+// src/pages/buyer/Merchants.jsx
+import React, { useEffect, useState } from 'react';
+import { Store, MapPin, Star, Search } from 'lucide-react';
+import PageHeader from '@/components/PageHeader';
+import { supabase } from '@/api/supabaseClient';
+import { reviewsAPI } from '@/api/entities';
+import { Input } from '@/components/ui/input';
 
 export default function BuyerMerchants() {
-  const { user, merchants, products, profile, refresh } = useBuyerData();
-  const [query, setQuery] = useState("");
-  const [region, setRegion] = useState("");
-  const navigate = useNavigate();
+  const [merchants, setMerchants] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
 
-  const favs = profile?.preferred_merchants || [];
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id, display_name, full_name, region')
+          .eq('account_type', 'merchant');
 
-  const regions = useMemo(() => [...new Set(merchants.map((m) => m.region).filter(Boolean))], [merchants]);
-  const productCount = (mid) => products.filter((p) => p.merchant_id === mid).length;
+        const { data: mps } = await supabase
+          .from('merchant_profiles')
+          .select('user_id, business_name, description, region');
 
-  const filtered = useMemo(() => {
-    const q = query.trim();
-    return merchants.filter((m) => {
-      if (q && !(m.business_name || "").includes(q)) return false;
-      if (region && m.region !== region) return false;
-      return true;
-    });
-  }, [merchants, query, region]);
+        const enriched = await Promise.all(
+          (profiles || []).map(async (p) => {
+            const mp = (mps || []).find((m) => m.user_id === p.id) || {};
+            let rating = 0;
+            try {
+              rating = await reviewsAPI.averageForMerchant(p.id);
+            } catch {}
+            return { ...p, ...mp, rating };
+          })
+        );
 
-  const ensureProfile = async () => {
-    if (profile) return profile;
-    const created = await base44.entities.BuyerProfile.create({ user_id: user.id, buyer_type: "general", preferred_merchants: [] });
-    refresh();
-    return created;
-  };
+        setMerchants(enriched);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  const toggleFav = async (m) => {
-    try {
-      const prof = await ensureProfile();
-      const list = prof.preferred_merchants || [];
-      const next = list.includes(m.user_id) ? list.filter((x) => x !== m.user_id) : [...list, m.user_id];
-      await base44.entities.BuyerProfile.update(prof.id, { preferred_merchants: next });
-      refresh();
-      toast({ title: list.includes(m.user_id) ? "أُزيل من المفضلة" : "أُضيف للمفضلة" });
-    } catch (err) {
-      toast({ title: err.message || "فشل", variant: "destructive" });
-    }
-  };
+    load();
+  }, []);
+
+  const filtered = merchants.filter((m) => {
+    if (!search) return true;
+    const name = (m.business_name || m.display_name || m.full_name || '').toLowerCase();
+    return name.includes(search.toLowerCase());
+  });
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-navy mb-6 flex items-center gap-2"><Store className="w-6 h-6 text-gold" /> تصفّح التجار</h1>
+      <PageHeader
+        icon={Store}
+        title="التجار"
+        subtitle={`${merchants.length} تاجر على المنصة`}
+      />
 
-      <div className="bg-card rounded-2xl border border-border p-4 mb-5 flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-[200px]">
+      <div className="mb-6 max-w-md">
+        <div className="relative">
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="بحث باسم المتجر..." className="pr-9 h-10" />
+          <Input
+            placeholder="ابحث عن تاجر..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pr-10"
+          />
         </div>
-        <select value={region} onChange={(e) => setRegion(e.target.value)} className="h-10 rounded-md border border-input bg-transparent px-3 text-sm">
-          <option value="">كل المناطق</option>
-          {regions.map((r) => <option key={r} value={r}>{r}</option>)}
-        </select>
       </div>
 
-      {filtered.length === 0 ? (
-        <EmptyState icon={Store} title="لا يوجد تجار" subtitle="لا يوجد تجار موثّقون مطابقون حالياً" />
+      {loading ? (
+        <div className="text-center py-12 text-muted-foreground">جارٍ التحميل...</div>
+      ) : filtered.length === 0 ? (
+        <div className="bg-card rounded-2xl border border-dashed border-border p-12 text-center">
+          <Store className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+          <p className="text-muted-foreground">لا يوجد تجار مطابقون</p>
+        </div>
       ) : (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-          {filtered.map((m) => {
-            const isFav = favs.includes(m.user_id);
-            return (
-              <div key={m.id} className="bg-card rounded-2xl border border-border overflow-hidden hover:border-gold/50 transition-colors">
-                <div className="h-24 bg-gradient-to-br from-navy to-[#2a3a5a] flex items-center justify-center relative">
-                  <div className="w-16 h-16 rounded-2xl bg-gold flex items-center justify-center text-navy font-extrabold text-2xl">{(m.business_name || "ت").charAt(0)}</div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filtered.map((m) => (
+            <div
+              key={m.id}
+              className="bg-card rounded-2xl border border-border p-5 hover:shadow-lg transition-shadow"
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-12 h-12 rounded-xl bg-navy text-white flex items-center justify-center font-bold text-lg">
+                  {(m.business_name || m.display_name || m.full_name || 'م').charAt(0)}
                 </div>
-                <div className="p-5">
-                  <div className="flex items-start justify-between gap-2">
-                    <h3 className="font-bold text-navy text-lg">{m.business_name}</h3>
-                    <button onClick={() => toggleFav(m)} className={`p-2 rounded-lg transition ${isFav ? "text-red-500 bg-red-50" : "text-muted-foreground hover:bg-secondary"}`}>
-                      {isFav ? <Heart className="w-5 h-5 fill-red-500" /> : <Heart className="w-5 h-5" />}
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-4 mt-2 text-sm text-muted-foreground">
-                    <span className="flex items-center gap-1"><MapPin className="w-4 h-4" /> {m.region || "—"}</span>
-                    <span className="flex items-center gap-1"><Star className="w-4 h-4 text-gold fill-gold" /> {(m.rating_avg || 0).toFixed(1)}</span>
-                    <span>{productCount(m.user_id)} منتج</span>
-                  </div>
-                  <div className="flex gap-2 mt-4">
-                    <Button asChild variant="outline" className="flex-1 h-10"><Link to={`/buyer/browse?merchant=${m.user_id}`}>منتجات</Link></Button>
-                    <Button asChild className="flex-1 h-10 bg-gold text-navy hover:bg-gold/90"><Link to={`/buyer/chat?merchant=${m.user_id}`}><MessageSquare className="w-4 h-4" /> محادثة</Link></Button>
-                  </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-navy truncate">
+                    {m.business_name || m.display_name || m.full_name}
+                  </p>
+                  {m.region && (
+                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+                      <MapPin className="w-3 h-3" />
+                      {m.region}
+                    </p>
+                  )}
                 </div>
               </div>
-            );
-          })}
+
+              <div className="flex items-center gap-2 mb-3">
+                <Star className="w-4 h-4 text-gold fill-gold" />
+                <span className="text-sm font-medium text-navy">
+                  {m.rating ? m.rating.toFixed(1) : '—'}
+                </span>
+              </div>
+
+              {m.description && (
+                <p className="text-xs text-muted-foreground line-clamp-2">
+                  {m.description}
+                </p>
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>

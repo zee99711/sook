@@ -1,148 +1,195 @@
-import React, { useMemo } from "react";
-import { Link } from "react-router-dom";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
-import PageHeader from "@/components/PageHeader";
-import StatCard from "@/components/StatCard";
-import EmptyState from "@/components/merchant/EmptyState";
-import { useMerchantData } from "@/hooks/useMerchantData";
-import { LayoutDashboard, Package, Truck, TrendingUp, Bell, ClipboardList, ChevronLeft } from "lucide-react";
-
-function last30Days() {
-  const days = [];
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    d.setDate(d.getDate() - i);
-    days.push({ key: d.toISOString().slice(0, 10), label: d.toLocaleDateString("ar-EG", { day: "numeric", month: "numeric" }), sales: 0 });
-  }
-  return days;
-}
+// src/pages/merchant/Dashboard.jsx
+import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import {
+  LayoutDashboard,
+  Package,
+  FileText,
+  TrendingUp,
+  Warehouse as WarehouseIcon,
+  Plus,
+} from 'lucide-react';
+import PageHeader from '@/components/PageHeader';
+import StatCard from '@/components/StatCard';
+import { productsAPI, invoicesAPI, notificationsAPI } from '@/api/entities';
+import { useAuth } from '@/lib/AuthContext';
 
 export default function MerchantDashboard() {
-  const { user, products, invoices, notifications, loading } = useMerchantData();
+  const { user } = useAuth();
+  const [stats, setStats] = useState({
+    products: 0,
+    lowStock: 0,
+    newOrders: 0,
+    inTransit: 0,
+    delivered: 0,
+    monthlyRevenue: 0,
+  });
+  const [recentInvoices, setRecentInvoices] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const stats = useMemo(() => {
-    const newOrders = invoices.filter((i) => i.delivery_status === "pending").length;
-    const inDelivery = invoices.filter((i) => ["preparing", "shipped"].includes(i.delivery_status)).length;
-    const now = new Date();
-    const monthSales = invoices
-      .filter((i) => (i.payment_status === "paid" || i.delivery_status === "delivered") && new Date(i.created_date).getMonth() === now.getMonth() && new Date(i.created_date).getFullYear() === now.getFullYear())
-      .reduce((s, i) => s + (i.total || 0), 0);
-    return { products: products.length, newOrders, inDelivery, monthSales };
-  }, [products, invoices]);
+  useEffect(() => {
+    if (!user?.id) return;
 
-  const chartData = useMemo(() => {
-    const days = last30Days();
-    invoices.forEach((inv) => {
-      if (inv.payment_status === "paid" || inv.delivery_status === "delivered") {
-        const k = new Date(inv.created_date).toISOString().slice(0, 10);
-        const row = days.find((d) => d.key === k);
-        if (row) row.sales += inv.total || 0;
+    const load = async () => {
+      try {
+        const [products, invoices] = await Promise.all([
+          productsAPI.listByMerchant(user.id, { limit: 1000 }),
+          invoicesAPI.listByMerchant(user.id),
+        ]);
+
+        const lowStock = products.filter(
+          (p) => p.stock_quantity > 0 && p.stock_quantity < 10
+        ).length;
+        const newOrders = invoices.filter((i) => i.status === 'pending').length;
+        const inTransit = invoices.filter((i) => i.status === 'shipped').length;
+        const delivered = invoices.filter((i) => i.status === 'delivered');
+
+        // الإيرادات آخر 30 يوم
+        const thirtyDaysAgo = Date.now() - 30 * 86400000;
+        const monthlyRevenue = delivered
+          .filter((i) => new Date(i.created_at).getTime() > thirtyDaysAgo)
+          .reduce((sum, i) => sum + Number(i.net_merchant || i.total || 0), 0);
+
+        setStats({
+          products: products.length,
+          lowStock,
+          newOrders,
+          inTransit,
+          delivered: delivered.length,
+          monthlyRevenue,
+        });
+
+        setRecentInvoices(invoices.slice(0, 5));
+      } catch (err) {
+        console.error('Dashboard load error:', err);
+      } finally {
+        setLoading(false);
       }
-    });
-    return days;
-  }, [invoices]);
+    };
 
-  const recentOrders = useMemo(() => [...invoices].sort((a, b) => new Date(b.created_date) - new Date(a.created_date)).slice(0, 5), [invoices]);
-  const recentNotifs = notifications.slice(0, 5);
+    load();
+  }, [user?.id]);
+
+  const statusLabel = (s) =>
+    ({
+      pending: 'قيد المراجعة',
+      confirmed: 'مؤكد',
+      shipped: 'قيد التسليم',
+      delivered: 'مكتمل',
+      rejected: 'مرفوض',
+      cancelled: 'ملغى',
+    }[s] || s);
+
+  const statusColor = (s) =>
+    ({
+      pending: 'bg-yellow-100 text-yellow-800',
+      confirmed: 'bg-blue-100 text-blue-800',
+      shipped: 'bg-purple-100 text-purple-800',
+      delivered: 'bg-green-100 text-green-800',
+      rejected: 'bg-red-100 text-red-800',
+      cancelled: 'bg-gray-100 text-gray-800',
+    }[s] || 'bg-gray-100 text-gray-800');
 
   return (
     <div>
-      <PageHeader title={`أهلاً ${user?.display_name || user?.full_name || "تاجر"}`} subtitle="نظرة عامة على نشاطك التجاري" icon={LayoutDashboard} />
+      <PageHeader
+        icon={LayoutDashboard}
+        title={`مرحباً، ${user?.display_name || user?.full_name || 'تاجر'}`}
+        subtitle="نظرة عامة على نشاطك التجاري"
+        action={
+          <Link
+            to="/merchant/warehouse"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-navy text-white rounded-xl hover:bg-navy/90 transition-colors text-sm font-medium"
+          >
+            <Plus className="w-4 h-4" />
+            إضافة منتج
+          </Link>
+        }
+      />
 
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <StatCard icon={Package} label="عدد المنتجات" value={stats.products} tone="navy" />
-        <StatCard icon={ClipboardList} label="طلبات جديدة" value={stats.newOrders} tone="gold" />
-        <StatCard icon={Truck} label="قيد التسليم" value={stats.inDelivery} tone="muted" />
-        <StatCard icon={TrendingUp} label="مبيعات الشهر" value={`${stats.monthSales.toLocaleString("ar-EG")} ر.س`} tone="navy" />
-      </div>
-
-      <div className="grid lg:grid-cols-3 gap-6">
-        {/* الرسم البياني */}
-        <div className="lg:col-span-2 bg-card rounded-2xl border border-border p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-navy">المبيعات — آخر 30 يوماً</h3>
-            <TrendingUp className="w-5 h-5 text-gold" />
+      {loading ? (
+        <div className="text-center py-12 text-muted-foreground">جارٍ التحميل...</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-8">
+            <StatCard
+              icon={Package}
+              label="إجمالي المنتجات"
+              value={stats.products}
+              tone="navy"
+            />
+            <StatCard
+              icon={WarehouseIcon}
+              label="مخزون منخفض"
+              value={stats.lowStock}
+              tone="gold"
+            />
+            <StatCard
+              icon={FileText}
+              label="طلبات جديدة"
+              value={stats.newOrders}
+              tone="navy"
+            />
+            <StatCard
+              icon={TrendingUp}
+              label="إيرادات 30 يوم"
+              value={`${stats.monthlyRevenue.toFixed(0)} ر.س`}
+              tone="gold"
+            />
           </div>
-          {loading ? (
-            <EmptyState loading />
-          ) : (
-            <ResponsiveContainer width="100%" height={280}>
-              <LineChart data={chartData} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#64748b" }} interval={3} />
-                <YAxis tick={{ fontSize: 11, fill: "#64748b" }} width={40} />
-                <Tooltip contentStyle={{ direction: "rtl", borderRadius: 12, border: "1px solid #e2e8f0" }} formatter={(v) => [`${v} ر.س`, "مبيعات"]} />
-                <Line type="monotone" dataKey="sales" stroke="#C9A961" strokeWidth={3} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          )}
-        </div>
 
-        {/* الإشعارات */}
-        <div className="bg-card rounded-2xl border border-border p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-navy">آخر الإشعارات</h3>
-            <Bell className="w-5 h-5 text-gold" />
-          </div>
-          {recentNotifs.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-8">لا توجد إشعارات</p>
-          ) : (
-            <div className="space-y-3">
-              {recentNotifs.map((n) => (
-                <div key={n.id} className="flex gap-3 p-3 rounded-xl bg-secondary/60">
-                  <div className="w-2 h-2 rounded-full bg-gold mt-1.5 shrink-0" />
-                  <div>
-                    <p className="text-sm font-medium text-navy">{n.title}</p>
-                    {n.body && <p className="text-xs text-muted-foreground mt-0.5">{n.body}</p>}
+          <div className="bg-card rounded-2xl border border-border p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-navy">آخر الطلبات</h2>
+              <Link
+                to="/merchant/invoices"
+                className="text-sm text-gold hover:underline"
+              >
+                عرض الكل
+              </Link>
+            </div>
+
+            {recentInvoices.length === 0 ? (
+              <p className="text-center py-8 text-muted-foreground text-sm">
+                لا توجد طلبات حتى الآن
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {recentInvoices.map((inv) => (
+                  <div
+                    key={inv.id}
+                    className="flex items-center justify-between p-3 rounded-xl hover:bg-secondary/50 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-navy/10 flex items-center justify-center">
+                        <FileText className="w-5 h-5 text-navy" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-navy">
+                          {inv.invoice_number}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(inv.created_at).toLocaleDateString('ar-EG')}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={`text-xs px-2 py-1 rounded-full font-medium ${statusColor(inv.status)}`}
+                      >
+                        {statusLabel(inv.status)}
+                      </span>
+                      <span className="text-sm font-bold text-navy">
+                        {Number(inv.total).toFixed(2)} ر.س
+                      </span>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* آخر الطلبات */}
-        <div className="lg:col-span-3 bg-card rounded-2xl border border-border p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-navy">آخر الطلبات</h3>
-            <Link to="/merchant/invoices" className="text-sm text-gold font-medium inline-flex items-center hover:underline">
-              عرض الكل <ChevronLeft className="w-4 h-4" />
-            </Link>
+                ))}
+              </div>
+            )}
           </div>
-          {recentOrders.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-8">لا توجد طلبات بعد</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-muted-foreground border-b border-border">
-                    <th className="text-right py-2 font-medium">رقم الفاتورة</th>
-                    <th className="text-right py-2 font-medium">المجموع</th>
-                    <th className="text-right py-2 font-medium">حالة التسليم</th>
-                    <th className="text-right py-2 font-medium">التاريخ</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentOrders.map((o) => (
-                    <tr key={o.id} className="border-b border-border last:border-0">
-                      <td className="py-3 font-mono text-xs">{o.id.slice(0, 8)}</td>
-                      <td className="py-3 font-semibold">{(o.total || 0).toLocaleString("ar-EG")} ر.س</td>
-                      <td className="py-3">{deliveryLabel(o.delivery_status)}</td>
-                      <td className="py-3 text-muted-foreground">{new Date(o.created_date).toLocaleDateString("ar-EG")}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
-}
-
-function deliveryLabel(s) {
-  const map = { pending: "بانتظار الموافقة", preparing: "قيد التجهيز", shipped: "تم الشحن", delivered: "تم التسليم" };
-  return <span className="px-2 py-1 rounded-md bg-secondary text-xs">{map[s] || s}</span>;
 }

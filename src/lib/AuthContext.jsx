@@ -1,142 +1,209 @@
+// src/lib/AuthContext.jsx
 import React, { createContext, useState, useContext, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
-import { appParams } from '@/lib/app-params';
+import { supabase } from '@/api/supabaseClient';
 
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
+  const [session, setSession] = useState(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
-  const [isLoadingPublicSettings, setIsLoadingPublicSettings] = useState(true);
+  const [isLoadingPublicSettings, setIsLoadingPublicSettings] = useState(false);
   const [authError, setAuthError] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
-  const [appPublicSettings, setAppPublicSettings] = useState(null); // Contains only { id, public_settings }
+  const [appPublicSettings, setAppPublicSettings] = useState({
+    id: 'sook-market',
+    public_settings: { app_name: 'سوق الوسيط' },
+  });
 
-  useEffect(() => {
-    checkAppState();
-  }, []);
+  // تحميل بيانات المستخدم من profiles
+  const loadUserProfile = async (authUser) => {
+    if (!authUser) return null;
 
-  const checkAppState = async () => {
     try {
-      setIsLoadingPublicSettings(true);
-      setAuthError(null);
-      
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', authUser.id)
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        console.warn('Profile fetch error:', error);
+      }
+
+      // إذا ما كان في profile، نحاول ننشئه
+      if (!profile) {
+        const { data: newProfile } = await supabase
+          .from('profiles')
+          .insert({
+            id: authUser.id,
+            email: authUser.email,
+            full_name: authUser.user_metadata?.full_name || authUser.email,
+            display_name: authUser.user_metadata?.full_name || authUser.email,
+            account_type: authUser.user_metadata?.account_type || 'buyer',
+          })
+          .select()
+          .single();
+        return buildUserObject(authUser, newProfile);
+      }
+
+      return buildUserObject(authUser, profile);
+    } catch (err) {
+      console.error('loadUserProfile error:', err);
+      return buildUserObject(authUser, null);
+    }
+  };
+
+  const buildUserObject = (authUser, profile) => ({
+    id: authUser.id,
+    email: authUser.email,
+    full_name: profile?.full_name || authUser.user_metadata?.full_name || '',
+    display_name: profile?.display_name || profile?.full_name || authUser.email,
+    account_type: profile?.account_type || 'buyer',
+    status: profile?.status || 'active',
+    role: profile?.account_type === 'admin' ? 'admin' : 'user',
+    phone: profile?.phone || '',
+    region: profile?.region || '',
+    avatar_url: profile?.avatar_url || '',
+    ...profile,
+  });
+
+  // مراقبة تغير حالة الجلسة
+  useEffect(() => {
+    let mounted = true;
+
+    const init = async () => {
       try {
-        const publicSettings = await base44.app.getPublicSettings();
-        setAppPublicSettings(publicSettings);
-        
-        // If we got the app public settings successfully, check if user is authenticated
-        if (appParams.token) {
-          await checkUserAuth();
-        } else {
-          setIsLoadingAuth(false);
-          setIsAuthenticated(false);
-          setAuthChecked(true);
-        }
-        setIsLoadingPublicSettings(false);
-      } catch (appError) {
-        console.error('App state check failed:', appError);
-        
-        // Handle app-level errors
-        if (appError.status === 403 && appError.data?.extra_data?.reason) {
-          const reason = appError.data.extra_data.reason;
-          if (reason === 'auth_required') {
-            setAuthError({
-              type: 'auth_required',
-              message: 'Authentication required'
-            });
-          } else if (reason === 'user_not_registered') {
-            setAuthError({
-              type: 'user_not_registered',
-              message: 'User not registered for this app'
-            });
-          } else {
-            setAuthError({
-              type: reason,
-              message: appError.message
-            });
+        setIsLoadingAuth(true);
+        const { data: { session: currentSession } } = await supabase.auth.getSession();
+
+        if (!mounted) return;
+
+        if (currentSession?.user) {
+          setSession(currentSession);
+          const fullUser = await loadUserProfile(currentSession.user);
+          if (mounted) {
+            setUser(fullUser);
+            setIsAuthenticated(true);
           }
         } else {
-          setAuthError({
-            type: 'unknown',
-            message: appError.message || 'Failed to load app'
-          });
+          setSession(null);
+          setUser(null);
+          setIsAuthenticated(false);
         }
-        setIsLoadingPublicSettings(false);
-        setIsLoadingAuth(false);
+      } catch (err) {
+        console.error('Auth init error:', err);
+        if (mounted) {
+          setAuthError({ type: 'unknown', message: err.message });
+        }
+      } finally {
+        if (mounted) {
+          setIsLoadingAuth(false);
+          setAuthChecked(true);
+        }
       }
-    } catch (error) {
-      console.error('Unexpected error:', error);
-      setAuthError({
-        type: 'unknown',
-        message: error.message || 'An unexpected error occurred'
-      });
-      setIsLoadingPublicSettings(false);
-      setIsLoadingAuth(false);
-    }
-  };
+    };
 
+    init();
+
+    // الاستماع لتغيرات المصادقة
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, newSession) => {
+        if (!mounted) return;
+        setSession(newSession);
+
+        if (event === 'SIGNED_IN' && newSession?.user) {
+          const fullUser = await loadUserProfile(newSession.user);
+          if (mounted) {
+            setUser(fullUser);
+            setIsAuthenticated(true);
+          }
+        } else if (event === 'SIGNED_OUT') {
+          setUser(null);
+          setIsAuthenticated(false);
+        } else if (event === 'TOKEN_REFRESHED' && newSession?.user) {
+          const fullUser = await loadUserProfile(newSession.user);
+          if (mounted) setUser(fullUser);
+        }
+      }
+    );
+
+    return () => {
+      mounted = false;
+      subscription?.unsubscribe();
+    };
+  }, []);
+
+  // إعادة التحقق يدوياً
   const checkUserAuth = async () => {
     try {
-      // Now check if the user is authenticated
       setIsLoadingAuth(true);
-      const currentUser = await base44.auth.me();
-      setUser(currentUser);
-      setIsAuthenticated(true);
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+
+      if (currentSession?.user) {
+        const fullUser = await loadUserProfile(currentSession.user);
+        setUser(fullUser);
+        setIsAuthenticated(true);
+        setSession(currentSession);
+      } else {
+        setUser(null);
+        setIsAuthenticated(false);
+        setSession(null);
+      }
+    } catch (err) {
+      console.error('checkUserAuth error:', err);
+      setAuthError({ type: 'unknown', message: err.message });
+    } finally {
       setIsLoadingAuth(false);
       setAuthChecked(true);
-    } catch (error) {
-      console.error('User auth check failed:', error);
-      setIsLoadingAuth(false);
+    }
+  };
+
+  // تسجيل الخروج
+  const logout = async (shouldRedirect = true) => {
+    try {
+      await supabase.auth.signOut();
+    } catch (err) {
+      console.error('Logout error:', err);
+    } finally {
+      setUser(null);
       setIsAuthenticated(false);
-      setAuthChecked(true);
-      
-      // If user auth fails, it might be an expired token
-      if (error.status === 401 || error.status === 403) {
-        setAuthError({
-          type: 'auth_required',
-          message: 'Authentication required'
-        });
+      setSession(null);
+
+      if (shouldRedirect) {
+        window.location.href = '/login';
       }
     }
   };
 
-  const logout = (shouldRedirect = true) => {
-    setUser(null);
-    setIsAuthenticated(false);
-    
-    if (shouldRedirect) {
-      // Use the SDK's logout method which handles token cleanup and redirect
-      base44.auth.logout(window.location.href);
-    } else {
-      // Just remove the token without redirect
-      base44.auth.logout();
-    }
-  };
-
+  // إعادة التوجيه لتسجيل الدخول
   const navigateToLogin = () => {
-    // Use the SDK's redirectToLogin method
-    base44.auth.redirectToLogin(window.location.href);
+    const returnTo = window.location.pathname + window.location.search;
+    window.location.href = `/login?returnTo=${encodeURIComponent(returnTo)}`;
   };
 
-  return (
-    <AuthContext.Provider value={{ 
-      user, 
-      isAuthenticated, 
-      isLoadingAuth,
-      isLoadingPublicSettings,
-      authError,
-      appPublicSettings,
-      authChecked,
-      logout,
-      navigateToLogin,
-      checkUserAuth,
-      checkAppState
-    }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  // لا حاجة لتحميل إعدادات عامة من السيرفر
+  const checkAppState = async () => {
+    // لا شيء — الإعدادات ثابتة
+  };
+
+  const value = {
+    user,
+    session,
+    isAuthenticated,
+    isLoadingAuth,
+    isLoadingPublicSettings,
+    authError,
+    appPublicSettings,
+    authChecked,
+    logout,
+    navigateToLogin,
+    checkUserAuth,
+    checkAppState,
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
 export const useAuth = () => {

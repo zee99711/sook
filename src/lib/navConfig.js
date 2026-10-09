@@ -1,3 +1,4 @@
+// src/lib/navConfig.js
 import {
   LayoutDashboard,
   Warehouse,
@@ -12,32 +13,32 @@ import {
   ShoppingCart,
   MessageSquare,
   User,
-} from "lucide-react";
+} from 'lucide-react';
 
 export const navItems = {
   merchant: [
-    { label: "لوحة التحكم", path: "/merchant/dashboard", icon: LayoutDashboard },
-    { label: "المستودع", path: "/merchant/warehouse", icon: Warehouse },
-    { label: "إدارة الأسعار", path: "/merchant/prices", icon: Tags },
-    { label: "الفواتير", path: "/merchant/invoices", icon: FileText },
-    { label: "تصفّح التجار", path: "/merchant/browse", icon: Search },
-    { label: "التقارير", path: "/merchant/reports", icon: BarChart3 },
-    { label: "الملف والإعدادات", path: "/merchant/profile", icon: Settings },
+    { label: 'لوحة التحكم', path: '/merchant/dashboard', icon: LayoutDashboard },
+    { label: 'المستودع', path: '/merchant/warehouse', icon: Warehouse },
+    { label: 'إدارة الأسعار', path: '/merchant/prices', icon: Tags },
+    { label: 'الفواتير', path: '/merchant/invoices', icon: FileText },
+    { label: 'تصفّح التجار', path: '/merchant/browse', icon: Search },
+    { label: 'التقارير', path: '/merchant/reports', icon: BarChart3 },
+    { label: 'الملف والإعدادات', path: '/merchant/profile', icon: Settings },
   ],
   buyer: [
-    { label: "الرئيسية", path: "/buyer/dashboard", icon: LayoutDashboard },
-    { label: "تصفّح المنتجات", path: "/buyer/browse", icon: Search },
-    { label: "التجار", path: "/buyer/merchants", icon: Store },
-    { label: "سلة المشتري", path: "/buyer/cart", icon: ShoppingCart },
-    { label: "طلباتي", path: "/buyer/orders", icon: Package },
-    { label: "المحادثات", path: "/buyer/chat", icon: MessageSquare },
-    { label: "الملف الشخصي", path: "/buyer/profile", icon: User },
+    { label: 'الرئيسية', path: '/buyer/dashboard', icon: LayoutDashboard },
+    { label: 'تصفّح المنتجات', path: '/buyer/browse', icon: Search },
+    { label: 'التجار', path: '/buyer/merchants', icon: Store },
+    { label: 'سلة المشتري', path: '/buyer/cart', icon: ShoppingCart },
+    { label: 'طلباتي', path: '/buyer/orders', icon: Package },
+    { label: 'المحادثات', path: '/buyer/chat', icon: MessageSquare },
+    { label: 'الملف الشخصي', path: '/buyer/profile', icon: User },
   ],
   admin: [
-    { label: "لوحة التحكم", path: "/admin/dashboard", icon: LayoutDashboard },
-    { label: "التجار", path: "/admin/merchants", icon: Store },
-    { label: "المستخدمون", path: "/admin/users", icon: Users },
-    { label: "الفواتير", path: "/admin/invoices", icon: FileText },
-    { label: "الإعدادات", path: "/admin/settings", icon: Settings },
+    { label: 'لوحة التحكم', path: '/admin/dashboard', icon: LayoutDashboard },
+    { label: 'التجار', path: '/admin/merchants', icon: Store },
+    { label: 'المستخدمون', path: '/admin/users', icon: Users },
+    { label: 'الفواتير', path: '/admin/invoices', icon: FileText },
+    { label: 'الإعدادات', path: '/admin/settings', icon: Settings },
   ],
 };

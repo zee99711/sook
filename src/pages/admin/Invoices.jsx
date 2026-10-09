@@ -1,94 +1,176 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { base44 } from "@/api/base44Client";
-import EmptyState from "@/components/merchant/EmptyState";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { FileText, Search, FileSpreadsheet, Download } from "lucide-react";
-import { exportCSV, printTable } from "@/lib/exportUtils";
-
-const delivLabel = { pending: "قيد المراجعة", preparing: "قيد التجهيز", shipped: "تم الشحن", delivered: "تم التسليم" };
+// src/pages/admin/Invoices.jsx
+import React, { useEffect, useState, useMemo } from 'react';
+import { FileText, Search, Download } from 'lucide-react';
+import PageHeader from '@/components/PageHeader';
+import { invoicesAPI } from '@/api/entities';
+import { Input } from '@/components/ui/input';
+import { exportCSV } from '@/lib/exportUtils';
+import { Button } from '@/components/ui/button';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import toast from 'react-hot-toast';
 
 export default function AdminInvoices() {
   const [invoices, setInvoices] = useState([]);
-  const [merchants, setMerchants] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [query, setQuery] = useState("");
+  const [search, setSearch] = useState('');
+  const [tab, setTab] = useState('all');
 
   useEffect(() => {
-    Promise.all([
-      base44.entities.Invoice.list("-created_date", 200),
-      base44.entities.MerchantProfile.list(),
-    ])
-      .then(([inv, m]) => { setInvoices(inv || []); setMerchants(m || []); })
-      .catch(() => {})
+    invoicesAPI
+      .listAll()
+      .then(setInvoices)
+      .catch(() => toast.error('فشل التحميل'))
       .finally(() => setLoading(false));
   }, []);
 
-  const mName = (id) => merchants.find((m) => m.user_id === id)?.business_name || "تاجر";
+  const grouped = useMemo(
+    () => ({
+      all: invoices,
+      pending: invoices.filter((i) => i.status === 'pending'),
+      confirmed: invoices.filter((i) => i.status === 'confirmed'),
+      shipped: invoices.filter((i) => i.status === 'shipped'),
+      delivered: invoices.filter((i) => i.status === 'delivered'),
+      rejected: invoices.filter((i) => i.status === 'rejected'),
+    }),
+    [invoices]
+  );
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return invoices.filter((i) => !q || (i.invoice_number || "").toLowerCase().includes(q) || (i.buyer_id || "").toLowerCase().includes(q));
-  }, [invoices, query]);
+    const list = grouped[tab] || [];
+    if (!search) return list;
+    return list.filter((i) =>
+      i.invoice_number?.toLowerCase().includes(search.toLowerCase())
+    );
+  }, [grouped, tab, search]);
 
-  const exportExcel = () => {
-    exportCSV("الفواتير", ["رقم الفاتورة", "التاجر", "المشتري", "الإجمالي", "العمولة", "الصافي", "الحالة"], filtered.map((i) => [i.invoice_number, mName(i.merchant_id), `مشتري #${(i.buyer_id || "").slice(-4)}`, i.total, i.commission, i.net_amount, delivLabel[i.delivery_status] || i.delivery_status]));
+  const handleExport = () => {
+    const headers = ['رقم الفاتورة', 'الحالة', 'المجموع', 'العمولة', 'التاريخ'];
+    const rows = filtered.map((i) => [
+      i.invoice_number,
+      i.status,
+      i.total,
+      i.commission,
+      new Date(i.created_at).toLocaleDateString('ar-EG'),
+    ]);
+    exportCSV('invoices', headers, rows);
+    toast.success('تم التصدير');
   };
-  const exportPDF = () => {
-    printTable("تقرير الفواتير", ["رقم الفاتورة", "التاجر", "الإجمالي", "العمولة", "الحالة"], filtered.map((i) => [i.invoice_number || i.id.slice(0, 8), mName(i.merchant_id), `${i.total} ر.س`, `${(i.commission || 0).toFixed(2)}`, delivLabel[i.delivery_status] || i.delivery_status]));
-  };
+
+  const statusLabel = (s) =>
+    ({
+      pending: 'قيد المراجعة',
+      confirmed: 'مؤكد',
+      shipped: 'قيد التسليم',
+      delivered: 'مكتمل',
+      rejected: 'مرفوض',
+      cancelled: 'ملغى',
+    }[s] || s);
+
+  const totalCommission = filtered
+    .filter((i) => i.status === 'delivered')
+    .reduce((s, i) => s + Number(i.commission || 0), 0);
 
   return (
     <div>
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-        <h1 className="text-2xl font-bold text-navy flex items-center gap-2"><FileText className="w-6 h-6 text-gold" /> كل الفواتير</h1>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={exportExcel} className="h-11"><FileSpreadsheet className="w-4 h-4" /> Excel</Button>
-          <Button variant="outline" onClick={exportPDF} className="h-11"><Download className="w-4 h-4" /> PDF</Button>
+      <PageHeader
+        icon={FileText}
+        title="إدارة الفواتير"
+        subtitle={`${invoices.length} فاتورة · عمولة محققة: ${totalCommission.toFixed(2)} ر.س`}
+        action={
+          <Button variant="outline" onClick={handleExport}>
+            <Download className="w-4 h-4 ml-2" />
+            تصدير CSV
+          </Button>
+        }
+      />
+
+      <div className="mb-6">
+        <div className="relative max-w-md">
+          <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="ابحث برقم الفاتورة..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pr-10"
+          />
         </div>
       </div>
 
-      <div className="relative max-w-sm mb-5">
-        <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-        <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="بحث برقم الفاتورة..." className="pr-9 h-10" />
-      </div>
+      <Tabs value={tab} onValueChange={setTab}>
+        <TabsList className="mb-6">
+          <TabsTrigger value="all">الكل ({grouped.all.length})</TabsTrigger>
+          <TabsTrigger value="pending">قيد المراجعة ({grouped.pending.length})</TabsTrigger>
+          <TabsTrigger value="confirmed">مؤكدة ({grouped.confirmed.length})</TabsTrigger>
+          <TabsTrigger value="shipped">قيد التسليم ({grouped.shipped.length})</TabsTrigger>
+          <TabsTrigger value="delivered">مكتملة ({grouped.delivered.length})</TabsTrigger>
+          <TabsTrigger value="rejected">مرفوضة ({grouped.rejected.length})</TabsTrigger>
+        </TabsList>
 
-      {loading ? (
-        <EmptyState loading />
-      ) : filtered.length === 0 ? (
-        <EmptyState icon={FileText} title="لا توجد فواتير" />
-      ) : (
-        <div className="bg-card rounded-2xl border border-border overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-secondary/60 text-muted-foreground">
-              <tr>
-                <th className="text-right px-4 py-3 font-medium">رقم الفاتورة</th>
-                <th className="text-right px-4 py-3 font-medium">التاجر</th>
-                <th className="text-right px-4 py-3 font-medium">المشتري</th>
-                <th className="text-right px-4 py-3 font-medium">التاريخ</th>
-                <th className="text-right px-4 py-3 font-medium">الإجمالي</th>
-                <th className="text-right px-4 py-3 font-medium">العمولة</th>
-                <th className="text-right px-4 py-3 font-medium">الصافي</th>
-                <th className="text-right px-4 py-3 font-medium">الحالة</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((i) => (
-                <tr key={i.id} className="border-t border-border hover:bg-secondary/30">
-                  <td className="px-4 py-3 font-mono text-xs">{i.invoice_number || i.id.slice(0, 8)}</td>
-                  <td className="px-4 py-3">{mName(i.merchant_id)}</td>
-                  <td className="px-4 py-3 text-muted-foreground">#{(i.buyer_id || "").slice(-4)}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{new Date(i.created_date).toLocaleDateString("ar-EG")}</td>
-                  <td className="px-4 py-3 font-semibold">{(i.total || 0).toLocaleString("ar-EG")} ر.س</td>
-                  <td className="px-4 py-3 text-muted-foreground">{(i.commission || 0).toLocaleString("ar-EG", { maximumFractionDigits: 2 })}</td>
-                  <td className="px-4 py-3">{(i.net_amount || 0).toLocaleString("ar-EG")} ر.س</td>
-                  <td className="px-4 py-3"><span className="px-2 py-1 rounded-md bg-secondary text-xs">{delivLabel[i.delivery_status] || i.delivery_status}</span></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+        <TabsContent value={tab}>
+          {loading ? (
+            <div className="text-center py-12 text-muted-foreground">جارٍ التحميل...</div>
+          ) : filtered.length === 0 ? (
+            <div className="bg-card rounded-2xl border border-dashed border-border p-12 text-center">
+              <FileText className="w-12 h-12 text-muted-foreground mx-auto mb-3" />
+              <p className="text-muted-foreground">لا توجد فواتير</p>
+            </div>
+          ) : (
+            <div className="bg-card rounded-2xl border border-border overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-secondary/50">
+                    <tr>
+                      <th className="text-right p-4 font-semibold text-navy">رقم الفاتورة</th>
+                      <th className="text-right p-4 font-semibold text-navy">التاريخ</th>
+                      <th className="text-right p-4 font-semibold text-navy">طريقة الدفع</th>
+                      <th className="text-right p-4 font-semibold text-navy">الإجمالي</th>
+                      <th className="text-right p-4 font-semibold text-navy">العمولة</th>
+                      <th className="text-right p-4 font-semibold text-navy">الحالة</th>
+                      <th className="text-right p-4 font-semibold text-navy"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map((inv) => (
+                      <tr key={inv.id} className="border-t border-border hover:bg-secondary/30">
+                        <td className="p-4 font-medium text-navy">{inv.invoice_number}</td>
+                        <td className="p-4 text-muted-foreground text-xs">
+                          {new Date(inv.created_at).toLocaleDateString('ar-EG')}
+                        </td>
+                        <td className="p-4 text-muted-foreground text-xs">
+                          {inv.payment_method || '—'}
+                        </td>
+                        <td className="p-4 font-medium text-navy">
+                          {Number(inv.total).toFixed(2)}
+                        </td>
+                        <td className="p-4 text-gold font-medium">
+                          {Number(inv.commission || 0).toFixed(2)}
+                        </td>
+                        <td className="p-4">
+                          <span className="text-xs px-2 py-1 rounded-full bg-navy/10 text-navy font-medium">
+                            {statusLabel(inv.status)}
+                          </span>
+                        </td>
+                        <td className="p-4">
+                          {inv.pdf_url && (
+                            <a
+                              href={inv.pdf_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-xs text-gold hover:underline"
+                            >
+                              PDF
+                            </a>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
