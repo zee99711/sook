@@ -6,6 +6,7 @@ import PageHeader from '@/components/PageHeader';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/lib/AuthContext';
 import { invoicesAPI, productsAPI } from '@/api/entities';
+import { supabase } from '@/api/supabaseClient';
 import { getCommissions, orderTotals } from '@/lib/commissions';
 import { notifyMerchantNewOrder } from '@/lib/notify';
 import { generateInvoiceNumber, generateAndSaveInvoicePDF } from '@/lib/invoiceUtils';
