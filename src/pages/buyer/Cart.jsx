@@ -5,11 +5,11 @@ import { ShoppingCart, Trash2, Minus, Plus, Store } from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/lib/AuthContext';
-import { invoicesAPI, productsAPI } from '@/api/entities';
+import { invoicesAPI } from '@/api/entities';
 import { supabase } from '@/api/supabaseClient';
 import { getCommissions, orderTotals } from '@/lib/commissions';
 import { notifyMerchantNewOrder } from '@/lib/notify';
-import { generateInvoiceNumber, generateAndSaveInvoicePDF } from '@/lib/invoiceUtils';
+import { generateInvoiceNumber } from '@/lib/invoiceUtils';
 import { PAYMENT_METHODS } from '@/lib/buyerConstants';
 import { Button } from '@/components/ui/button';
 import toast from 'react-hot-toast';
@@ -83,28 +83,51 @@ export default function BuyerCart() {
 
         // 2. إنشاء البنود
         for (const it of merchantItems) {
-          await supabase.from('invoice_items').insert({
-            invoice_id: invoice.id,
-            product_id: it.product.id,
-            name: it.product.name,
-            qty: it.qty,
-            unit_price: it.product.price,
-            subtotal: Number(it.product.price) * it.qty,
-          });
-
-          // 3. تحديث المخزون
-          try {
-            await productsAPI.update(it.product.id, {
-              stock_quantity: Math.max(0, it.product.stock_quantity - it.qty),
+          const { error: itemError } = await supabase
+            .from('invoice_items')
+            .insert({
+              invoice_id: invoice.id,
+              product_id: it.product.id,
+              name: it.product.name,
+              qty: it.qty,
+              unit_price: it.product.price,
+              subtotal: Number(it.product.price) * it.qty,
             });
-          } catch (e) {
-            console.warn('Stock update failed:', e);
+
+          if (itemError) {
+            console.warn('Invoice item insert warning:', itemError.message);
+          }
+
+          // 3. تحديث المخزون (بشكل آمن بدون .single())
+          try {
+            const { error: stockError } = await supabase
+              .from('products')
+              .update({
+                stock_quantity: Math.max(
+                  0,
+                  Number(it.product.stock_quantity || 0) - it.qty
+                ),
+              })
+              .eq('id', it.product.id);
+
+            if (stockError) {
+              console.warn('Stock update warning:', stockError.message);
+            }
+          } catch (stockErr) {
+            console.warn('Stock update failed:', stockErr);
           }
         }
 
         // 4. إشعار التاجر
         const buyerName = user.display_name || user.full_name || 'مشتري';
-        await notifyMerchantNewOrder({ ...invoice, total: totals.total }, buyerName);
+        try {
+          await notifyMerchantNewOrder(
+            { ...invoice, total: totals.total },
+            buyerName
+          );
+        } catch (notifyErr) {
+          console.warn('Notification warning:', notifyErr);
+        }
 
         createdInvoices.push(invoice);
       }
@@ -135,10 +158,15 @@ export default function BuyerCart() {
             const merchantItems = groups[merchantId];
             const merchantName = merchantItems[0].product.merchant_name || 'تاجر';
             return (
-              <div key={merchantId} className="bg-card rounded-2xl border border-border p-5">
+              <div
+                key={merchantId}
+                className="bg-card rounded-2xl border border-border p-5"
+              >
                 <div className="flex items-center gap-2 mb-4 pb-3 border-b border-border">
                   <Store className="w-4 h-4 text-gold" />
-                  <span className="text-sm font-medium text-navy">{merchantName}</span>
+                  <span className="text-sm font-medium text-navy">
+                    {merchantName}
+                  </span>
                 </div>
 
                 <div className="space-y-3">
@@ -170,7 +198,10 @@ export default function BuyerCart() {
                         >
                           <Minus className="w-3 h-3" />
                         </button>
-                        <span className="w-8 text-center text-sm font-medium" dir="ltr">
+                        <span
+                          className="w-8 text-center text-sm font-medium"
+                          dir="ltr"
+                        >
                           {it.qty}
                         </span>
                         <button
