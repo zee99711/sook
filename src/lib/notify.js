@@ -1,37 +1,62 @@
 // src/lib/notify.js
-import { notificationsAPI } from '@/api/entities';
+import { supabase } from '@/api/supabaseClient';
 
-// إشعار داخلي
+// ============================================================
+// إشعار داخلي (لا يفتح أي نافذة خارجية)
+// ============================================================
 export async function notifyInternal(userId, type, title, body, link = null) {
   if (!userId) return;
   try {
-    await notificationsAPI.create({
-      user_id: userId,
-      type,
-      title,
-      body,
-      link,
-      is_read: false,
-    });
+    const { error } = await supabase
+      .from('notifications')
+      .insert({
+        user_id: userId,
+        type,
+        title,
+        body,
+        link,
+        is_read: false,
+      });
+
+    if (error) {
+      console.warn('Notification insert warning:', error.message);
+    }
   } catch (err) {
     console.warn('Internal notification failed:', err);
   }
 }
 
-// إشعار واتساب عبر wa.me
-export function notifyWhatsApp(text) {
+// ============================================================
+// دالة مساعدة: توليد رابط واتساب (بدون فتحه)
+// الاستخدام: window.open(buildWhatsAppLink(text))
+// ============================================================
+export function buildWhatsAppLink(text, phone = '') {
+  const cleanPhone = phone.replace(/\D/g, '');
+  const base = cleanPhone ? `https://wa.me/${cleanPhone}` : 'https://wa.me/';
+  return `${base}?text=${encodeURIComponent(text)}`;
+}
+
+// ============================================================
+// دالة مساعدة: فتح واتساب يدوياً (تُستدعى عند الضغط على زر)
+// ============================================================
+export function shareOnWhatsApp(text, phone = '') {
   try {
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+    const link = buildWhatsAppLink(text, phone);
+    window.open(link, '_blank', 'noopener,noreferrer');
   } catch (err) {
-    console.warn('WhatsApp notify failed:', err);
+    console.warn('WhatsApp share failed:', err);
   }
 }
 
+// ============================================================
+// نصوص جاهزة للإشعارات (بدون تنفيذ)
+// ============================================================
 const STATUS_MAP = {
   new_order: {
     type: 'new_order',
     title: 'طلب جديد',
-    bodyFor: (m, inv) => `لديك طلب جديد ${inv.invoice_number} بقيمة ${inv.total} ر.س.`,
+    bodyFor: (m, inv) =>
+      `لديك طلب جديد ${inv.invoice_number} بقيمة ${inv.total} ر.س.`,
   },
   confirmed: {
     type: 'order_confirmed',
@@ -51,7 +76,8 @@ const STATUS_MAP = {
   delivered: {
     type: 'order_delivered',
     title: 'تم تسليم طلبك',
-    bodyFor: (m, inv) => `تم تسليم طلبك ${inv.invoice_number}. يرجى تقييم التاجر ${m}.`,
+    bodyFor: (m, inv) =>
+      `تم تسليم طلبك ${inv.invoice_number}. يرجى تقييم التاجر ${m}.`,
   },
   new_review: {
     type: 'new_review',
@@ -65,24 +91,44 @@ const STATUS_MAP = {
   },
 };
 
-// إشعار للمشتري عند تغيير حالة الفاتورة
+// ============================================================
+// إشعار المشتري عند تغيير الحالة (بدون واتساب تلقائي)
+// ============================================================
 export async function notifyBuyerOnStatus(invoice, merchantName, statusKey) {
   const cfg = STATUS_MAP[statusKey];
   if (!cfg) return;
   const body = cfg.bodyFor(merchantName, invoice);
-  await notifyInternal(invoice.buyer_id, cfg.type, cfg.title, body, `/buyer/orders`);
-  notifyWhatsApp(`${cfg.title}\n${body}`);
+
+  // إشعار داخلي فقط (لا واتساب تلقائي)
+  await notifyInternal(
+    invoice.buyer_id,
+    cfg.type,
+    cfg.title,
+    body,
+    `/buyer/orders`
+  );
 }
 
-// إشعار للتاجر بطلب جديد
+// ============================================================
+// إشعار التاجر بطلب جديد (بدون واتساب تلقائي)
+// ============================================================
 export async function notifyMerchantNewOrder(invoice, buyerName) {
   const cfg = STATUS_MAP.new_order;
   const body = cfg.bodyFor(buyerName, invoice);
-  await notifyInternal(invoice.merchant_id, cfg.type, cfg.title, body, `/merchant/invoices`);
-  notifyWhatsApp(`${cfg.title}\n${body}`);
+
+  // إشعار داخلي فقط
+  await notifyInternal(
+    invoice.merchant_id,
+    cfg.type,
+    cfg.title,
+    body,
+    `/merchant/invoices`
+  );
 }
 
+// ============================================================
 // إشعار محادثة
+// ============================================================
 export async function notifyChat(recipientId, senderName) {
   await notifyInternal(
     recipientId,
@@ -91,4 +137,34 @@ export async function notifyChat(recipientId, senderName) {
     `${senderName} أرسل لك رسالة.`,
     null
   );
+}
+
+// ============================================================
+// دوال مساعدة لتوليد نصوص الفاتورة (للمشاركة اليدوية)
+// ============================================================
+export function buildInvoiceShareText(invoice, merchantName, buyerName, items = []) {
+  const lines = [
+    `🧾 *فاتورة ${invoice.invoice_number}*`,
+    `━━━━━━━━━━━━━━━━━`,
+    `👤 التاجر: ${merchantName || '—'}`,
+    `🛒 المشتري: ${buyerName || '—'}`,
+    `📅 التاريخ: ${new Date(invoice.created_at).toLocaleDateString('ar-EG')}`,
+    `━━━━━━━━━━━━━━━━━`,
+  ];
+
+  if (items.length > 0) {
+    lines.push('*المنتجات:*');
+    items.forEach((it, idx) => {
+      lines.push(
+        `${idx + 1}. ${it.name} × ${it.qty} = ${(it.qty * it.unit_price).toFixed(2)} ر.س`
+      );
+    });
+    lines.push(`━━━━━━━━━━━━━━━━━`);
+  }
+
+  lines.push(`💰 الإجمالي: *${Number(invoice.total || 0).toFixed(2)} ر.س*`);
+  lines.push(`💳 طريقة الدفع: ${invoice.payment_method || '—'}`);
+  lines.push(`📊 الحالة: ${invoice.status || '—'}`);
+
+  return lines.join('\n');
 }

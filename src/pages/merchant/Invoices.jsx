@@ -1,10 +1,19 @@
 // src/pages/merchant/Invoices.jsx
 import React, { useEffect, useState, useMemo } from 'react';
-import { FileText, Download, Check, X, Truck, Package } from 'lucide-react';
+import {
+  FileText,
+  Download,
+  Check,
+  X,
+  Truck,
+  Package,
+  Share2,
+  MessageCircle,
+} from 'lucide-react';
 import PageHeader from '@/components/PageHeader';
-import { invoicesAPI, profilesAPI } from '@/api/entities';
+import { invoicesAPI } from '@/api/entities';
 import { useAuth } from '@/lib/AuthContext';
-import { notifyBuyerOnStatus } from '@/lib/notify';
+import { notifyBuyerOnStatus, shareOnWhatsApp, buildInvoiceShareText } from '@/lib/notify';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import toast from 'react-hot-toast';
@@ -46,7 +55,6 @@ export default function MerchantInvoices() {
     try {
       await invoicesAPI.updateStatus(invoice.id, newStatus);
 
-      // إشعار المشتري
       const statusKey =
         newStatus === 'confirmed'
           ? 'confirmed'
@@ -68,6 +76,27 @@ export default function MerchantInvoices() {
     } catch (err) {
       console.error(err);
       toast.error('فشل التحديث');
+    }
+  };
+
+  // 🆕 مشاركة واتساب يدوياً
+  const handleShareWhatsApp = (invoice) => {
+    const merchantName = user.display_name || user.full_name || 'التاجر';
+    const text = buildInvoiceShareText(
+      invoice,
+      merchantName,
+      'المشتري',
+      invoice.items || []
+    );
+    shareOnWhatsApp(text);
+  };
+
+  // 🆕 تحميل PDF
+  const handleDownloadPDF = (invoice) => {
+    if (invoice.pdf_url) {
+      window.open(invoice.pdf_url, '_blank', 'noopener,noreferrer');
+    } else {
+      toast.error('ملف PDF غير متوفر بعد');
     }
   };
 
@@ -111,18 +140,27 @@ export default function MerchantInvoices() {
         </div>
 
         <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border">
+          {/* 🆕 زر تحميل PDF */}
           {inv.pdf_url && (
-            <a
-              href={inv.pdf_url}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border hover:bg-secondary text-xs"
+            <button
+              onClick={() => handleDownloadPDF(inv)}
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border hover:bg-secondary text-xs font-medium"
             >
               <Download className="w-3.5 h-3.5" />
               تحميل PDF
-            </a>
+            </button>
           )}
 
+          {/* 🆕 زر مشاركة واتساب */}
+          <button
+            onClick={() => handleShareWhatsApp(inv)}
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 text-xs font-medium"
+          >
+            <MessageCircle className="w-3.5 h-3.5" />
+            مشاركة واتساب
+          </button>
+
+          {/* أزرار تغيير الحالة */}
           {inv.status === 'pending' && (
             <>
               <Button
